@@ -15,8 +15,8 @@ external set_compression_context_parameter :
   compression_context -> int -> int -> unit = "caml_create_zstd_set_cctx_param"
 (** [set_compression_context_parameter context param value] *)
 
-external load_compression_dictionary : compression_context -> Bstr.t -> unit
-  = "caml_create_zstd_load_cdict"
+external load_compression_dictionary :
+  compression_context -> Dictionary.t -> unit = "caml_create_zstd_load_cdict"
 (** [load_compression_dictionary context dictionary] *)
 
 external create_decompression_context : unit -> decompression_context
@@ -28,8 +28,8 @@ external set_decompression_context_parameter :
   = "caml_create_zstd_set_dctx_param"
 (** [set_decompression_context_parameter context param value] *)
 
-external load_decompression_dictionary : decompression_context -> Bstr.t -> unit
-  = "caml_create_zstd_load_ddict"
+external load_decompression_dictionary :
+  decompression_context -> Dictionary.t -> unit = "caml_create_zstd_load_ddict"
 (** [load_decompression_dictionary context dictionary] *)
 
 type decompression_stream = external "ZSTD_DCtx"
@@ -42,7 +42,7 @@ external set_decompression_stream_parameter :
   decompression_stream -> int -> int -> unit = "caml_create_zstd_set_dctx_param"
 (** [set_decompression_stream_parameter stream param value] *)
 
-type dictionary = Bstr.t
+type dictionary = Dictionary.t
 (** A dictionary, as a bigstring. *)
 
 external version : unit -> int = "caml_zstd_version"

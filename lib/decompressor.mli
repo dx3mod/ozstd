@@ -39,7 +39,7 @@ val decompress_bigstring :
       compression. See {!decompress_string_into_bytes}. *)
 
 val decompress_string :
-  ?context:Context.t -> ?dictionary:Bstr.t -> string -> string
+  ?context:Context.t -> ?dictionary:Dictionary.t -> string -> string
 (** [decompress_string ?context ?dictionary string] decompresses the compressed
     [string] and returns the original data as a new string.
 
