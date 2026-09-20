@@ -9,6 +9,27 @@
 
 #include <string.h>
 #include <zstd.h>
+#include <zstd_errors.h>
+
+/*
+ * Some error codes were added after zstd v1.3.1, so they are not available
+ * on all versions of the library. Guard each of them with the first zstd
+ * release that introduced it:
+ *
+ *   dstBuffer_wrong              >= v1.4.5
+ *   srcBuffer_wrong              >= v1.4.7
+ *   literals_headerWrong         >= v1.5.4
+ *   parameter_combination...     >= v1.5.4
+ *   stabilityCondition...        >= v1.5.4
+ *   noForwardProgress_*          >= v1.5.4
+ *   sequenceProducer_failed      >= v1.5.4
+ *   externalSequences_invalid    >= v1.5.4
+ *   cannotProduce_uncompressedBlock >= v1.5.7
+ */
+#define OZSTD_ZSTD_VERSION_AT_LEAST(M, m, p)                              \
+  (ZSTD_VERSION_MAJOR > (M) ||                                           \
+   (ZSTD_VERSION_MAJOR == (M) && (ZSTD_VERSION_MINOR > (m) ||            \
+    (ZSTD_VERSION_MINOR == (m) && ZSTD_VERSION_RELEASE >= (p)))))
 
 ////////////////////////////////////////////////////////////////////////
 //  ERRORS
@@ -84,9 +105,11 @@ static value zstd_error_code_to_ocaml(int code)
   case ZSTD_error_checksum_wrong:
     tag = OCAML_ZSTD_CHECKSUM_WRONG;
     break;
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 4)
   case ZSTD_error_literals_headerWrong:
     tag = OCAML_ZSTD_LITERALS_HEADER_WRONG;
     break;
+#endif
   case ZSTD_error_dictionary_corrupted:
     tag = OCAML_ZSTD_DICTIONARY_CORRUPTED;
     break;
@@ -99,9 +122,11 @@ static value zstd_error_code_to_ocaml(int code)
   case ZSTD_error_parameter_unsupported:
     tag = OCAML_ZSTD_PARAMETER_UNSUPPORTED;
     break;
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 4)
   case ZSTD_error_parameter_combination_unsupported:
     tag = OCAML_ZSTD_PARAMETER_COMBINATION_UNSUPPORTED;
     break;
+#endif
   case ZSTD_error_parameter_outOfBound:
     tag = OCAML_ZSTD_PARAMETER_OUT_OF_BOUND;
     break;
@@ -114,12 +139,16 @@ static value zstd_error_code_to_ocaml(int code)
   case ZSTD_error_maxSymbolValue_tooSmall:
     tag = OCAML_ZSTD_MAX_SYMBOL_VALUE_TOO_SMALL;
     break;
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 7)
   case ZSTD_error_cannotProduce_uncompressedBlock:
     tag = OCAML_ZSTD_CANNOT_PRODUCE_UNCOMPRESSED_BLOCK;
     break;
+#endif
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 4)
   case ZSTD_error_stabilityCondition_notRespected:
     tag = OCAML_ZSTD_STABILITY_CONDITION_NOT_RESPECTED;
     break;
+#endif
   case ZSTD_error_stage_wrong:
     tag = OCAML_ZSTD_STAGE_WRONG;
     break;
@@ -141,30 +170,38 @@ static value zstd_error_code_to_ocaml(int code)
   case ZSTD_error_dstBuffer_null:
     tag = OCAML_ZSTD_DST_BUFFER_NULL;
     break;
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 4)
   case ZSTD_error_noForwardProgress_destFull:
     tag = OCAML_ZSTD_NO_FORWARD_PROGRESS_DEST_FULL;
     break;
   case ZSTD_error_noForwardProgress_inputEmpty:
     tag = OCAML_ZSTD_NO_FORWARD_PROGRESS_INPUT_EMPTY;
     break;
+#endif
   case ZSTD_error_frameIndex_tooLarge:
     tag = OCAML_ZSTD_FRAME_INDEX_TOO_LARGE;
     break;
   case ZSTD_error_seekableIO:
     tag = OCAML_ZSTD_SEEKABLE_IO;
     break;
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 4, 5)
   case ZSTD_error_dstBuffer_wrong:
     tag = OCAML_ZSTD_DST_BUFFER_WRONG;
     break;
+#endif
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 4, 7)
   case ZSTD_error_srcBuffer_wrong:
     tag = OCAML_ZSTD_SRC_BUFFER_WRONG;
     break;
+#endif
+#if OZSTD_ZSTD_VERSION_AT_LEAST(1, 5, 4)
   case ZSTD_error_sequenceProducer_failed:
     tag = OCAML_ZSTD_SEQUENCE_PRODUCER_FAILED;
     break;
   case ZSTD_error_externalSequences_invalid:
     tag = OCAML_ZSTD_EXTERNAL_SEQUENCES_INVALID;
     break;
+#endif
   case ZSTD_error_maxCode:
     tag = OCAML_ZSTD_MAX_CODE;
     break;
