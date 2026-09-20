@@ -1,6 +1,7 @@
 #include <caml/mlvalues.h>
 #include <caml/alloc.h>
 #include <caml/memory.h>
+#include <caml/callback.h>
 #include <caml/fail.h>
 #include <caml/custom.h>
 #include <caml/bigarray.h>
@@ -8,6 +9,196 @@
 
 #include <string.h>
 #include <zstd.h>
+
+////////////////////////////////////////////////////////////////////////
+//  ERRORS
+////////////////////////////////////////////////////////////////////////
+
+enum
+{
+  OCAML_ZSTD_NO_ERROR = 0,
+  OCAML_ZSTD_GENERIC = 1,
+  OCAML_ZSTD_PREFIX_UNKNOWN = 2,
+  OCAML_ZSTD_VERSION_UNSUPPORTED = 3,
+  OCAML_ZSTD_FRAME_PARAMETER_UNSUPPORTED = 4,
+  OCAML_ZSTD_FRAME_PARAMETER_WINDOW_TOO_LARGE = 5,
+  OCAML_ZSTD_CORRUPTION_DETECTED = 6,
+  OCAML_ZSTD_CHECKSUM_WRONG = 7,
+  OCAML_ZSTD_LITERALS_HEADER_WRONG = 8,
+  OCAML_ZSTD_DICTIONARY_CORRUPTED = 9,
+  OCAML_ZSTD_DICTIONARY_WRONG = 10,
+  OCAML_ZSTD_DICTIONARY_CREATION_FAILED = 11,
+  OCAML_ZSTD_PARAMETER_UNSUPPORTED = 12,
+  OCAML_ZSTD_PARAMETER_COMBINATION_UNSUPPORTED = 13,
+  OCAML_ZSTD_PARAMETER_OUT_OF_BOUND = 14,
+  OCAML_ZSTD_TABLE_LOG_TOO_LARGE = 15,
+  OCAML_ZSTD_MAX_SYMBOL_VALUE_TOO_LARGE = 16,
+  OCAML_ZSTD_MAX_SYMBOL_VALUE_TOO_SMALL = 17,
+  OCAML_ZSTD_CANNOT_PRODUCE_UNCOMPRESSED_BLOCK = 18,
+  OCAML_ZSTD_STABILITY_CONDITION_NOT_RESPECTED = 19,
+  OCAML_ZSTD_STAGE_WRONG = 20,
+  OCAML_ZSTD_INIT_MISSING = 21,
+  OCAML_ZSTD_MEMORY_ALLOCATION = 22,
+  OCAML_ZSTD_WORK_SPACE_TOO_SMALL = 23,
+  OCAML_ZSTD_DST_SIZE_TOO_SMALL = 24,
+  OCAML_ZSTD_SRC_SIZE_WRONG = 25,
+  OCAML_ZSTD_DST_BUFFER_NULL = 26,
+  OCAML_ZSTD_NO_FORWARD_PROGRESS_DEST_FULL = 27,
+  OCAML_ZSTD_NO_FORWARD_PROGRESS_INPUT_EMPTY = 28,
+  OCAML_ZSTD_FRAME_INDEX_TOO_LARGE = 29,
+  OCAML_ZSTD_SEEKABLE_IO = 30,
+  OCAML_ZSTD_DST_BUFFER_WRONG = 31,
+  OCAML_ZSTD_SRC_BUFFER_WRONG = 32,
+  OCAML_ZSTD_SEQUENCE_PRODUCER_FAILED = 33,
+  OCAML_ZSTD_EXTERNAL_SEQUENCES_INVALID = 34,
+  OCAML_ZSTD_MAX_CODE = 35
+};
+
+static value zstd_error_code_to_ocaml(int code)
+{
+  int tag;
+
+  switch (code)
+  {
+  case ZSTD_error_no_error:
+    tag = OCAML_ZSTD_NO_ERROR;
+    break;
+  case ZSTD_error_GENERIC:
+    tag = OCAML_ZSTD_GENERIC;
+    break;
+  case ZSTD_error_prefix_unknown:
+    tag = OCAML_ZSTD_PREFIX_UNKNOWN;
+    break;
+  case ZSTD_error_version_unsupported:
+    tag = OCAML_ZSTD_VERSION_UNSUPPORTED;
+    break;
+  case ZSTD_error_frameParameter_unsupported:
+    tag = OCAML_ZSTD_FRAME_PARAMETER_UNSUPPORTED;
+    break;
+  case ZSTD_error_frameParameter_windowTooLarge:
+    tag = OCAML_ZSTD_FRAME_PARAMETER_WINDOW_TOO_LARGE;
+    break;
+  case ZSTD_error_corruption_detected:
+    tag = OCAML_ZSTD_CORRUPTION_DETECTED;
+    break;
+  case ZSTD_error_checksum_wrong:
+    tag = OCAML_ZSTD_CHECKSUM_WRONG;
+    break;
+  case ZSTD_error_literals_headerWrong:
+    tag = OCAML_ZSTD_LITERALS_HEADER_WRONG;
+    break;
+  case ZSTD_error_dictionary_corrupted:
+    tag = OCAML_ZSTD_DICTIONARY_CORRUPTED;
+    break;
+  case ZSTD_error_dictionary_wrong:
+    tag = OCAML_ZSTD_DICTIONARY_WRONG;
+    break;
+  case ZSTD_error_dictionaryCreation_failed:
+    tag = OCAML_ZSTD_DICTIONARY_CREATION_FAILED;
+    break;
+  case ZSTD_error_parameter_unsupported:
+    tag = OCAML_ZSTD_PARAMETER_UNSUPPORTED;
+    break;
+  case ZSTD_error_parameter_combination_unsupported:
+    tag = OCAML_ZSTD_PARAMETER_COMBINATION_UNSUPPORTED;
+    break;
+  case ZSTD_error_parameter_outOfBound:
+    tag = OCAML_ZSTD_PARAMETER_OUT_OF_BOUND;
+    break;
+  case ZSTD_error_tableLog_tooLarge:
+    tag = OCAML_ZSTD_TABLE_LOG_TOO_LARGE;
+    break;
+  case ZSTD_error_maxSymbolValue_tooLarge:
+    tag = OCAML_ZSTD_MAX_SYMBOL_VALUE_TOO_LARGE;
+    break;
+  case ZSTD_error_maxSymbolValue_tooSmall:
+    tag = OCAML_ZSTD_MAX_SYMBOL_VALUE_TOO_SMALL;
+    break;
+  case ZSTD_error_cannotProduce_uncompressedBlock:
+    tag = OCAML_ZSTD_CANNOT_PRODUCE_UNCOMPRESSED_BLOCK;
+    break;
+  case ZSTD_error_stabilityCondition_notRespected:
+    tag = OCAML_ZSTD_STABILITY_CONDITION_NOT_RESPECTED;
+    break;
+  case ZSTD_error_stage_wrong:
+    tag = OCAML_ZSTD_STAGE_WRONG;
+    break;
+  case ZSTD_error_init_missing:
+    tag = OCAML_ZSTD_INIT_MISSING;
+    break;
+  case ZSTD_error_memory_allocation:
+    tag = OCAML_ZSTD_MEMORY_ALLOCATION;
+    break;
+  case ZSTD_error_workSpace_tooSmall:
+    tag = OCAML_ZSTD_WORK_SPACE_TOO_SMALL;
+    break;
+  case ZSTD_error_dstSize_tooSmall:
+    tag = OCAML_ZSTD_DST_SIZE_TOO_SMALL;
+    break;
+  case ZSTD_error_srcSize_wrong:
+    tag = OCAML_ZSTD_SRC_SIZE_WRONG;
+    break;
+  case ZSTD_error_dstBuffer_null:
+    tag = OCAML_ZSTD_DST_BUFFER_NULL;
+    break;
+  case ZSTD_error_noForwardProgress_destFull:
+    tag = OCAML_ZSTD_NO_FORWARD_PROGRESS_DEST_FULL;
+    break;
+  case ZSTD_error_noForwardProgress_inputEmpty:
+    tag = OCAML_ZSTD_NO_FORWARD_PROGRESS_INPUT_EMPTY;
+    break;
+  case ZSTD_error_frameIndex_tooLarge:
+    tag = OCAML_ZSTD_FRAME_INDEX_TOO_LARGE;
+    break;
+  case ZSTD_error_seekableIO:
+    tag = OCAML_ZSTD_SEEKABLE_IO;
+    break;
+  case ZSTD_error_dstBuffer_wrong:
+    tag = OCAML_ZSTD_DST_BUFFER_WRONG;
+    break;
+  case ZSTD_error_srcBuffer_wrong:
+    tag = OCAML_ZSTD_SRC_BUFFER_WRONG;
+    break;
+  case ZSTD_error_sequenceProducer_failed:
+    tag = OCAML_ZSTD_SEQUENCE_PRODUCER_FAILED;
+    break;
+  case ZSTD_error_externalSequences_invalid:
+    tag = OCAML_ZSTD_EXTERNAL_SEQUENCES_INVALID;
+    break;
+  case ZSTD_error_maxCode:
+    tag = OCAML_ZSTD_MAX_CODE;
+    break;
+  default:
+    /* Unknown error code – map to Generic as a safe fallback. */
+    tag = OCAML_ZSTD_GENERIC;
+    break;
+  }
+
+  return Val_int(tag);
+}
+
+CAMLnoret static void raise_zstd_error(const int error_code, const char *fn, const char *message)
+{
+  const value *exn = caml_named_value("ozstd_zstd_error");
+
+  if (exn == NULL)
+    caml_failwith(message);
+
+  const value fn_val = caml_copy_string(fn);
+  const value message_val = caml_copy_string(message);
+  value args[] = {zstd_error_code_to_ocaml(error_code), fn_val, message_val};
+
+  caml_raise_with_args(*exn, 3, args);
+}
+
+static void check_on_zstd_error(size_t result, const char *fn_name, const char *msg)
+{
+  if (ZSTD_isError(result))
+    raise_zstd_error(
+        ZSTD_getErrorCode(result),
+        fn_name,
+        msg == NULL ? ZSTD_getErrorName(result) : msg);
+}
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -41,7 +232,7 @@ CAMLprim value caml_create_zstd_cctx_s(value unit)
   ZSTD_CCtx *cctx = ZSTD_createCCtx();
 
   if (cctx == NULL)
-    caml_failwith("create_zstd_cctx_s have NULL");
+    raise_zstd_error(-1, "ZSTD_createCCtx", "NULL");
 
   Zstd_cctx_val(cctx_val) = cctx;
 
@@ -87,7 +278,7 @@ CAMLprim value caml_create_zstd_dctx_s(value unit)
   ZSTD_DCtx *dctx = ZSTD_createDCtx();
 
   if (dctx == NULL)
-    caml_failwith("create_zstd_dctx_s have NULL");
+    raise_zstd_error(-1, "ZSTD_createDCtx", "NULL");
 
   Zstd_dctx_val(dctx_val) = dctx;
 
@@ -111,8 +302,7 @@ CAMLprim value caml_create_zstd_load_cdict(value context, value dictionary)
                                                  Caml_ba_data_val(dictionary),
                                                  Caml_ba_array_val(dictionary)->dim[0]);
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_CCtx_loadDictionary", NULL);
 
   CAMLreturn(Val_unit);
 }
@@ -125,8 +315,7 @@ CAMLprim value caml_create_zstd_load_ddict(value context, value dictionary)
                                                  Caml_ba_data_val(dictionary),
                                                  Caml_ba_array_val(dictionary)->dim[0]);
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_DCtx_loadDictionary", NULL);
 
   CAMLreturn(Val_unit);
 }
@@ -144,34 +333,33 @@ CAMLprim value caml_zstd_compress_bound(value src_size)
   CAMLreturn(Val_long(ZSTD_COMPRESSBOUND(Long_val(src_size))));
 }
 
-CAMLprim value caml_get_frame_string_content_size(value compressed_string)
+CAMLprim value caml_get_frame_content_size(value compressed)
 {
-  CAMLparam1(compressed_string);
+  CAMLparam1(compressed);
 
-  const size_t result =
-      ZSTD_getFrameContentSize(String_val(compressed_string), caml_string_length(compressed_string));
+  char const *data;
+  size_t data_size;
+
+  if (Tag_val(compressed) == String_tag)
+  {
+    data = String_val(compressed);
+    data_size = caml_string_length(compressed);
+  }
+  else if (Tag_val(compressed) == Custom_tag)
+  {
+    data = Caml_ba_data_val(compressed);
+    data_size = Caml_ba_array_val(compressed)->dim[0];
+  }
+  else
+    caml_failwith("impossible state");
+
+  const size_t result = ZSTD_getFrameContentSize(data, data_size);
 
   if (result == ZSTD_CONTENTSIZE_ERROR)
-    caml_failwith("get_frame_content_size: corrupt frame");
+    raise_zstd_error(-1, "ZSTD_getFrameContentSize", "corrupt frame");
 
   if (result == ZSTD_CONTENTSIZE_UNKNOWN)
-    caml_failwith("get_frame_content_size: frame does not carry its content size");
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_get_frame_bigstring_content_size(value compressed_bigstring)
-{
-  CAMLparam1(compressed_bigstring);
-
-  const size_t result =
-      ZSTD_getFrameContentSize(Caml_ba_data_val(compressed_bigstring), Caml_ba_array_val(compressed_bigstring)->dim[0]);
-
-  if (result == ZSTD_CONTENTSIZE_ERROR)
-    caml_failwith("get_frame_content_size: corrupt frame");
-
-  if (result == ZSTD_CONTENTSIZE_UNKNOWN)
-    caml_failwith("get_frame_content_size: frame does not carry its content size");
+    raise_zstd_error(-1, "ZSTD_getFrameContentSize", "frame does not carry its content size");
 
   CAMLreturn(Val_long(result));
 }
@@ -198,8 +386,7 @@ CAMLprim value caml_zstd_compress_bigstring(value src_buf, value dst_buf, value 
                                       compression_level);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compress", NULL);
 
   CAMLreturn(Val_long(result));
 }
@@ -225,8 +412,7 @@ CAMLprim value caml_zstd_compress_bigstring_with_context(value context, value sr
                                           compression_level);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compressCCtx", NULL);
 
   CAMLreturn(Val_long(result));
 }
@@ -256,8 +442,7 @@ CAMLprim value caml_zstd_compress_bigstring_with_context_and_dictionary(value co
                                                 compression_level);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compress_usingDict", NULL);
 
   CAMLreturn(Val_long(result));
 }
@@ -273,8 +458,7 @@ CAMLprim value caml_zstd_compress_string(value src_str, value dst_bytes, value l
       String_val(src_str), caml_string_length(src_str),
       Int_val(level));
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compress", NULL);
 
   CAMLreturn(Val_long(result));
 }
@@ -289,8 +473,8 @@ CAMLprim value caml_zstd_compress_string_with_context(value context, value src_s
       String_val(src_str), caml_string_length(src_str),
       Int_val(level));
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compressCCtx", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -305,8 +489,8 @@ CAMLprim value caml_zstd_compress_string_with_context_and_dictionary(value conte
       Caml_ba_data_val(dictionary), Caml_ba_array_val(dictionary)->dim[0],
       Int_val(level));
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_compress_usingDict", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -322,8 +506,8 @@ CAMLprim value caml_zstd_decompress_string(value src_str, value dst_bytes)
       Bytes_val(dst_bytes), caml_string_length(dst_bytes),
       String_val(src_str), caml_string_length(src_str));
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompress", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -336,8 +520,8 @@ CAMLprim value caml_zstd_decompress_string_with_context(value context, value src
       Bytes_val(dst_bytes), caml_string_length(dst_bytes),
       String_val(src_str), caml_string_length(src_str));
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompressDCtx", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -351,8 +535,8 @@ CAMLprim value caml_zstd_decompress_string_with_context_and_dictionary(value con
       String_val(src_str), caml_string_length(src_str),
       Caml_ba_data_val(dictionary), Caml_ba_array_val(dictionary)->dim[0]);
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompress_usingDict", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -372,8 +556,8 @@ CAMLprim value caml_zstd_decompress_bigstring(value src_buf, value dst_buf)
   const size_t result = ZSTD_decompress(uncompressed_output_buffer, uncompressed_output_buffer_length, compressed_data, compressed_data_length);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompress", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -395,8 +579,8 @@ CAMLprim value caml_zstd_decompress_bigstring_with_context(value context, value 
                                             compressed_data, compressed_data_length);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompressDCtx", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -422,8 +606,8 @@ CAMLprim value caml_zstd_decompress_bigstring_with_context_and_dictionary(value 
                                                   dictionary_string, dictionary_string_length);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(result))
-    caml_failwith(ZSTD_getErrorName(result));
+  check_on_zstd_error(result, "ZSTD_decompress_usingDict", NULL);
+
   CAMLreturn(Val_long(result));
 }
 
@@ -468,8 +652,7 @@ CAMLprim value caml_zstd_compress_stream2(value context, value in_slice, value o
   const size_t remaining = ZSTD_compressStream2(cctx, &output, &input, dir);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(remaining))
-    caml_failwith(ZSTD_getErrorName(remaining));
+  check_on_zstd_error(remaining, "ZSTD_compressStream2", NULL);
 
   tup = caml_alloc_tuple(3);
   initialize_compression_result_tuple(tup, remaining, input.pos, output.pos);
@@ -494,8 +677,7 @@ CAMLprim value caml_zstd_compress_stream2_bytes(value context, value in_slice, v
 
   const size_t remaining = ZSTD_compressStream2(Zstd_cctx_val(context), &output, &input, Int_val(directive));
 
-  if (ZSTD_isError(remaining))
-    caml_failwith(ZSTD_getErrorName(remaining));
+  check_on_zstd_error(remaining, "ZSTD_compressStream2", NULL);
 
   tup = caml_alloc_tuple(3);
   initialize_compression_result_tuple(tup, remaining, input.pos, output.pos);
@@ -547,7 +729,7 @@ CAMLprim value caml_create_zstd_dstream(value unit)
   ZSTD_DStream *dstream = ZSTD_createDStream();
 
   if (dstream == NULL)
-    caml_failwith("caml_create_zstd_dstream have NULL");
+    raise_zstd_error(-1, "ZSTD_createDStream", "NULL");
 
   Zstd_dstream_val(dstream_val) = dstream;
 
@@ -575,8 +757,7 @@ CAMLprim value caml_zstd_decompress_stream(value dstream, value in_slice, value 
   const size_t remaining = ZSTD_decompressStream(stream, &output, &input);
   caml_leave_blocking_section();
 
-  if (ZSTD_isError(remaining))
-    caml_failwith(ZSTD_getErrorName(remaining));
+  check_on_zstd_error(remaining, "ZSTD_decompressStream", NULL);
 
   tup = caml_alloc_tuple(3);
   initialize_compression_result_tuple(tup, remaining, input.pos, output.pos);
@@ -601,8 +782,7 @@ CAMLprim value caml_zstd_decompress_stream_bytes(value dstream, value in_slice, 
 
   const size_t remaining = ZSTD_decompressStream(Zstd_dstream_val(dstream), &output, &input);
 
-  if (ZSTD_isError(remaining))
-    caml_failwith(ZSTD_getErrorName(remaining));
+  check_on_zstd_error(remaining, "ZSTD_decompressStream", NULL);
 
   tup = caml_alloc_tuple(3);
   initialize_compression_result_tuple(tup, remaining, input.pos, output.pos);

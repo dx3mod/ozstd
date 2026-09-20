@@ -93,7 +93,7 @@ val compress_bigstring_into :
       unknown, a buffer of the uncompressed size plus a margin is a safe upper
       bound.
 
-    @raise Failure if [dst] is too small for the compressed data.
+    @raise Ozstd.Zstd_error if [dst] is too small for the compressed data.
     @return the number of bytes written to [dst]. *)
 
 val compress_string_into :

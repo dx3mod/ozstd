@@ -52,11 +52,11 @@ external compress_bound : int -> int = "caml_zstd_compress_bound"
 (** [compress_bound src_size] *)
 
 external get_decompression_size_of_string : string -> int
-  = "caml_get_frame_string_content_size"
+  = "caml_get_frame_content_size"
 (** [get_decompression_size_of_string compressed] *)
 
 external get_decompression_size_of_bigstring : Bstr.t -> int
-  = "caml_get_frame_bigstring_content_size"
+  = "caml_get_frame_content_size"
 (** [get_decompression_size_of_bigstring compressed] *)
 
 external get_decompression_stream_out_size : unit -> int

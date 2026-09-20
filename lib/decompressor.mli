@@ -34,7 +34,7 @@ val decompress_bigstring :
     @param context reuse a context instead of creating a fresh one.
     @param dictionary an optional dictionary that was used for compression.
 
-    @raise Failure
+    @raise Ozstd.Zstd_error
       if the frame does not store its content size, as produced by streaming
       compression. See {!decompress_string_into_bytes}. *)
 
@@ -46,7 +46,7 @@ val decompress_string :
     @param context reuse a context instead of creating a fresh one.
     @param dictionary an optional dictionary that was used for compression.
 
-    @raise Failure
+    @raise Ozstd.Zstd_error
       if the frame does not store its content size, as produced by streaming
       compression. See {!decompress_string_into_bytes}. *)
 

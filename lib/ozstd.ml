@@ -28,4 +28,8 @@ let version () =
 
 (** {2 Internals} *)
 
-module Bindings_intf = Bindings
+module Bindings = Bindings
+
+(** {3 Errors} *)
+
+module Zstd_error = Zstd_error
