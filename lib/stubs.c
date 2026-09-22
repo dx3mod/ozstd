@@ -26,10 +26,10 @@
  *   externalSequences_invalid    >= v1.5.4
  *   cannotProduce_uncompressedBlock >= v1.5.7
  */
-#define OZSTD_ZSTD_VERSION_AT_LEAST(M, m, p)                              \
-  (ZSTD_VERSION_MAJOR > (M) ||                                           \
-   (ZSTD_VERSION_MAJOR == (M) && (ZSTD_VERSION_MINOR > (m) ||            \
-    (ZSTD_VERSION_MINOR == (m) && ZSTD_VERSION_RELEASE >= (p)))))
+#define OZSTD_ZSTD_VERSION_AT_LEAST(M, m, p)                  \
+  (ZSTD_VERSION_MAJOR > (M) ||                                \
+   (ZSTD_VERSION_MAJOR == (M) && (ZSTD_VERSION_MINOR > (m) || \
+                                  (ZSTD_VERSION_MINOR == (m) && ZSTD_VERSION_RELEASE >= (p)))))
 
 ////////////////////////////////////////////////////////////////////////
 //  ERRORS
@@ -214,18 +214,23 @@ static value zstd_error_code_to_ocaml(int code)
   return Val_int(tag);
 }
 
-CAMLnoret static void raise_zstd_error(const int error_code, const char *fn, const char *message)
+CAMLnoret static void raise_zstd_error(const int error_code, const char *fn_name, const char *message)
 {
+  CAMLparam0();
+  CAMLlocalN(args, 3);
+
   const value *exn = caml_named_value("ozstd_zstd_error");
 
   if (exn == NULL)
     caml_failwith(message);
 
-  const value fn_val = caml_copy_string(fn);
-  const value message_val = caml_copy_string(message);
-  value args[] = {zstd_error_code_to_ocaml(error_code), fn_val, message_val};
+  args[0] = zstd_error_code_to_ocaml(error_code);
+  args[1] = caml_copy_string(fn_name);
+  args[2] = caml_copy_string(message);
 
   caml_raise_with_args(*exn, 3, args);
+
+  CAMLnoreturn;
 }
 
 static void check_on_zstd_error(size_t result, const char *fn_name, const char *msg)
