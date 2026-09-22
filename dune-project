@@ -2,7 +2,7 @@
 
 (name ozstd)
 
-(version 0.2)
+(version 0.3)
 
 (implicit_transitive_deps false)
 
