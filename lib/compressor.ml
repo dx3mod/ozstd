@@ -25,22 +25,12 @@ let create ?dictionary ?compression_level () =
   compressor
 
 let compress_bigstring_into ~in_slice ~out_slice compressor =
-  let _, _, len =
-    Mutex.protect compressor.mutex @@ fun () ->
-    Bindings.compress_stream2 compressor.context in_slice out_slice
-      Bindings.Directive.eend
-  in
-
-  len
+  Mutex.protect compressor.mutex @@ fun () ->
+  Bindings.compress2_bigstring compressor.context in_slice out_slice
 
 let compress_string_into ~in_slice ~out_slice compressor =
-  let _, _, len =
-    Mutex.protect compressor.mutex @@ fun () ->
-    Bindings.compress_stream2_bytes compressor.context in_slice out_slice
-      Bindings.Directive.eend
-  in
-
-  len
+  Mutex.protect compressor.mutex @@ fun () ->
+  Bindings.compress2_string compressor.context in_slice out_slice
 
 let compress_bigstring compressor uncompressed =
   let in_slice = Slice_bstr.make uncompressed

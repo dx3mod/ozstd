@@ -84,6 +84,22 @@ external get_compression_stream_in_size : unit -> int
   = "caml_zstd_compression_stream_in_size"
 (** [get_compression_stream_in_size ()] is [ZSTD_CStreamInSize]. *)
 
+external compress2_bigstring :
+  compression_context -> Slice_bstr.t -> Slice_bstr.t -> int
+  = "caml_zstd_compress2_bigstring"
+
+external compress2_string :
+  compression_context -> Slice_bytes.t -> Slice_bytes.t -> int
+  = "caml_zstd_compress2_string"
+
+external decompress_bigstring :
+  decompression_context -> Slice_bstr.t -> Slice_bstr.t -> int
+  = "caml_zstd_decompress_bigstring"
+
+external decompress_string :
+  decompression_context -> Slice_bytes.t -> Slice_bytes.t -> int
+  = "caml_zstd_decompress_string"
+
 (** [Directive.continue], [Directive.flush] and [Directive.eend] are the flush
     directives for the streaming compressor. *)
 module Directive = struct

@@ -23,14 +23,14 @@ type zstd_error_code =
   | Init_missing
   | Memory_allocation
   | Work_space_too_small
-  | Dst_size_too_small
+  | Destination_size_too_small
   | Src_size_wrong
-  | Dst_buffer_null
+  | Destination_buffer_null
   | No_forward_progress_dest_full
   | No_forward_progress_input_empty
   | Frame_index_too_large
   | Seekable_io
-  | Dst_buffer_wrong
+  | Destination_buffer_wrong
   | Src_buffer_wrong
   | Sequence_producer_failed
   | External_sequences_invalid
