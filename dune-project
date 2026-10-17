@@ -2,7 +2,7 @@
 
 (name ozstd)
 
-(version 0.3)
+(version 0.4)
 
 (implicit_transitive_deps false)
 
@@ -19,9 +19,9 @@
 
 (package
  (name ozstd)
- (synopsis "A thin, modern OCaml binding to Zstandard")
+ (synopsis "A small OCaml binding to Zstandard")
  (description
-  "A small, modern OCaml binding to Zstandard. It wraps the common one-shot and streaming C APIs in a simple, idiomatic interface")
+  "A small OCaml bindings to [Zstandard], wrapping the reference C API in an idiomatic interface")
  (depends
   (ocaml
    (>= 5.5.0))

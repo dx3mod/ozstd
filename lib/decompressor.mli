@@ -1,123 +1,161 @@
 (** The Zstandard decompression module.
 
-    The module covers the decompression features of the Zstandard (zstd) C
-    library. *)
+    This module provides functions for both bulk and streaming decompression. *)
 
-(** {2 Reusable contexts} *)
+type t
+(** The decompressor type holds Zstandard internal state and a mutex.
 
-(** A decompression context holding Zstandard internal state.
+    A decompressor can be reused across many decompression calls to avoid
+    re-initialization overhead. *)
 
-    Contexts are mutex-guarded and may be shared across threads. *)
-module Context : sig
-  type t
+and decompressor = t
+(** Alias for {!t}. *)
 
-  val create : unit -> t
-  (** [create ()] returns a fresh, unconfigured decompression context. *)
+val create : ?size_limit:int -> ?dictionary:Dictionary.t -> unit -> t
+(** [create ?size_limit ?dictionary ()] creates a new decompressor value.
 
-  val set_size_limit : t -> int -> unit
-  (** [set_size_limit context size] caps the size of the internal decompression
-      buffer of [context] at [size] bytes, protecting against decompression
-      bombs. *)
+    @param size_limit
+      An optional cap on the sliding window size. See {!set_size_limit}.
 
-  val load_dictionary : t -> Dictionary.t -> unit
-  (** [load_dictionary context dict] loads [dict] into [context]. Every
-      decompression call using [context] subsequently applies [dict]. *)
-end
+    @param dictionary An optional dictionary to load. *)
 
-(** {2 One-shot decompression} *)
+val set_size_limit : t -> int -> unit
+(** [set_size_limit decompressor size] caps the size of the sliding window the
+    decompressor will accept at [size] bytes, protecting against decompression
+    bombs.
 
-val decompress_bigstring :
-  ?context:Context.t -> ?dictionary:Dictionary.t -> Bstr.t -> Bstr.t
-(** [decompress_bigstring ?context ?dictionary bigstring] decompresses the
-    compressed [bigstring] and returns the original data in a fresh bigstring.
+    @param decompressor The decompressor to configure.
+    @param size The new upper bound on the window size, in bytes. *)
 
-    @param context reuse a context instead of creating a fresh one.
-    @param dictionary an optional dictionary that was used for compression.
+(** {2 Bulk decompression} *)
 
-    @raise Ozstd.Zstd_error
-      if the frame does not store its content size, as produced by streaming
-      compression. See {!decompress_string_into_bytes}. *)
-
-val decompress_string :
-  ?context:Context.t -> ?dictionary:Dictionary.t -> string -> string
-(** [decompress_string ?context ?dictionary string] decompresses the compressed
-    [string] and returns the original data as a new string.
-
-    @param context reuse a context instead of creating a fresh one.
-    @param dictionary an optional dictionary that was used for compression.
-
-    @raise Ozstd.Zstd_error
-      if the frame does not store its content size, as produced by streaming
-      compression. See {!decompress_string_into_bytes}. *)
-
-val decompress_channel :
-  ?dictionary:Dictionary.t ->
-  ?size_limit:int ->
-  in_channel ->
-  out_channel ->
-  unit
-(** [decompress_channel ?dictionary ?size_limit ic oc] streams data from [ic] to
-    [oc], decompressing it on the fly. *)
-
-(** {3 Into} *)
+(** {3 Decompression into buffer} *)
 
 val decompress_bigstring_into :
-  ?context:Context.t -> ?dictionary:Dictionary.t -> Bstr.t -> Bstr.t -> int
-(** [decompress_bigstring_into ?context ?dictionary src dst] decompresses [src]
-    into the destination bigstring [dst].
+  in_slice:Slice_bstr.t -> out_slice:Slice_bstr.t -> t -> int
+(** [decompress_bigstring_into ~in_slice ~out_slice decompressor] decompresses
+    the data in [in_slice] into the pre-allocated buffer [out_slice].
 
-    @param dst
-      the destination buffer, large enough for the original data. Its size can
-      be read from the frame header with
-      {!Ozstd.Compressor.Frame.uncompressed_size}.
-    @return the number of bytes written to [dst]. *)
+    This is a low-level function: the caller is responsible for sizing
+    [out_slice] correctly. For frames produced by
+    {!Zstandard.Compressor.compress_bigstring} the required size can be read
+    from the frame header with [Frame.uncompressed_size]; for frames produced by
+    the streaming API the size may not be stored at all, in which case the
+    caller must know it out of band.
 
-val decompress_string_into_bytes :
-  ?context:Context.t -> ?dictionary:Dictionary.t -> string -> bytes -> int
-(** [decompress_string_into_bytes ?context ?dictionary src dst] decompresses
-    [src] into the destination [bytes] [dst]. Use this for frames without a
-    stored content size (produced by streaming compression), providing a [dst]
-    large enough for the original data.
+    @param in_slice The compressed input data.
+    @param out_slice
+      The destination buffer; it must be large enough to hold the full
+      decompressed payload.
+    @param decompressor The decompressor to use.
 
-    @param dst the destination buffer, large enough for the original data.
-    @return the number of bytes written to [dst]. *)
+    @return The number of bytes written to [out_slice]. *)
 
-(** {2 Incremental decompression} *)
+val decompress_bytes_into :
+  in_slice:Slice_bytes.t -> out_slice:Slice_bytes.t -> t -> int
+(** [decompress_bytes_into ~in_slice ~out_slice decompressor] decompresses the
+    data in [in_slice] into [out_slice].
 
-(** The decompression stream module. This is the manual, buffer-level API: you
-    are in charge of the buffers and of tracking progress yourself. *)
+    This is the [bytes]-based counterpart of {!decompress_bigstring_into}; the
+    same sizing caveat applies.
+
+    @return The number of bytes written to [out_slice]. *)
+
+(** {3 Single decompression} *)
+
+val decompress_bigstring : t -> Bstr.t -> Bstr.t
+(** [decompress_bigstring decompressor compressed] decompresses [compressed] and
+    returns the original data in a fresh bigstring.
+
+    The destination size is read from the frame header using
+    [Frame.uncompressed_size], so [compressed] must be a frame that stores its
+    content size. Frames produced by {!Zstandard.Compressor.compress_bigstring}
+    and {!Zstandard.Compressor.compress_bytes} satisfy this condition; frames
+    produced by the streaming API may not — use {!decompress_bigstring_into} for
+    those.
+
+    @param decompressor The decompressor to use.
+    @param compressed The compressed input frame.
+
+    @return A fresh bigstring holding the decompressed data. *)
+
+val decompress_bytes : t -> string -> string
+(** [decompress_bytes decompressor compressed] decompresses the compressed
+    string [compressed] and returns the original data as a new [bytes].
+
+    The destination size is read from the frame header, so [compressed] must be
+    a frame that stores its content size (same constraint as
+    {!decompress_bigstring}).
+
+    @param decompressor The decompressor to use.
+    @param compressed The compressed input frame.
+
+    @return A fresh [string] buffer holding the decompressed data. *)
+
+val decompress_channel : decompressor -> in_channel -> out_channel -> unit
+(** [decompress_channel decompressor ic oc] streams data from [ic] to [oc],
+    decompressing it on the fly.
+
+    @param decompressor The decompressor to use.
+    @param ic The input channel holding compressed data.
+    @param oc The output channel for decompressed data. *)
+
+(** {2 Streaming decompression}
+
+    The streaming API is suitable for unbounded or large data streams where the
+    entire input cannot be held in memory at once, or for frames that do not
+    store their content size. *)
+
 module Stream : sig
   type t
+  (** The type of a streaming decompression context.
+
+      A stream context wraps a {!decompressor} and tracks whether it has been
+      closed. *)
+
+  val make : decompressor -> t
+  (** [make decompressor] creates a new stream context based on the given
+      [decompressor].
+
+      @param decompressor
+        The decompressor that provides the configuration and dictionary for this
+        stream. *)
+
+  val in_size : unit -> int
+  (** [in_size ()] returns the recommended input buffer size for decompression.
+  *)
+
+  val out_size : unit -> int
+  (** [out_size ()] returns the recommended output buffer size for
+      decompression. *)
 
   exception Already_closed
-  (** Raised when using a stream that has been closed. *)
+  (** Raised when attempting to use a stream context that has already been
+      closed with {!close}. *)
 
-  val create : ?dictionary:Dictionary.t -> ?size_limit:int -> unit -> t
-  (** [create ?dictionary ?size_limit ()] returns a fresh decompression stream.
-
-      @param dictionary an optional dictionary used for compression.
-      @param size_limit an optional cap on the decompressed size. *)
-
-  val close : t -> unit
-  (** [close stream] explicitly closes [stream].
-
-      @raise Already_closed if [stream] is already closed. *)
-
-  val decompress :
+  val decompress_bigstring :
     in_slice:Slice_bstr.t ->
     out_slice:Slice_bstr.t ->
     t ->
     (remaining:int * consumed:int * decompressed:int)
-  (** [decompress ~in_slice ~out_slice stream] decompresses the bytes of
-      [in_slice] into [out_slice], feeding [stream].
+  (** [decompress_bigstring ~in_slice ~out_slice stream] decompresses the bytes
+      of [in_slice] into [out_slice], feeding [stream].
 
-      @param in_slice the input buffer holding compressed data.
-      @param out_slice the output buffer to write decompressed bytes into.
+      Call this function in a loop, refilling [in_slice] and draining
+      [out_slice] until the whole frame has been decoded. The stream does not
+      signal end-of-frame by itself; the caller detects completion either from
+      the known expected output size or by observing that the input has been
+      fully consumed and the trailing frame bytes have been processed.
+
+      @param in_slice The input buffer holding compressed data.
+      @param out_slice The output buffer to write decompressed bytes into.
+      @param stream The stream to feed.
+
       @return
-        A triple where [remaining] is the number of bytes of [in_slice] not yet
-        processed, [consumed] the number consumed, and [decompressed] the number
-        of bytes written to [out_slice]. Call it repeatedly, refilling
-        [in_slice] and emptying [out_slice], until all data is processed.
+        A triple [(remaining, consumed, decompressed)] where:
+        - [remaining] is the number of bytes of [in_slice] not yet processed,
+        - [consumed] is the number of bytes of [in_slice] actually processed,
+        - [decompressed] is the number of bytes written to [out_slice].
 
       @raise Already_closed if [stream] was closed. *)
 
@@ -126,45 +164,58 @@ module Stream : sig
     out_slice:Slice_bytes.t ->
     t ->
     (remaining:int * consumed:int * decompressed:int)
-  (** [decompress_bytes ~in_slice ~out_slice stream] is {!decompress} with
-      [bytes]-based slices. Useful if you prefer mutable [bytes] to bigstrings;
-      the interface and semantics are identical.
+  (** [decompress_bytes] is the [bytes]-based counterpart of
+      {!decompress_bigstring}.
 
       {b Runtime note.} Unlike bigstrings, [bytes] block the OCaml runtime while
       the C code runs. *)
 
-  val in_size : unit -> int
-  (** [in_size ()] is the recommended input buffer size for {!decompress}. *)
+  val close : t -> unit
+  (** [close stream] closes the [stream].
 
-  val out_size : unit -> int
-  (** [out_size ()] is the recommended output buffer size for {!decompress}. *)
+      After calling [close], the stream must not be used again. Attempting to do
+      so will raise {!Already_closed}.
+
+      @raise Already_closed if [stream] is already closed. *)
 end
 
-(** {2 Incremental decompression, automated} *)
+(** {3 Incremental decompression, automated} *)
 
-(** The decompression stream state module: wraps a {!Stream} so that buffers and
-    progress are managed for you. *)
+(** A stateful wrapper around {!Stream} that manages the output buffer and the
+    decompression loop for you. *)
 module State : sig
   type t
+  (** An automated decompression state.
 
-  val make : ?out_buf:Bstr.t -> ?stream:Stream.t -> unit -> t
-  (** [make ?out_buf ?stream ()] returns the state built on the existing
-      [stream].
+      Bundles a {!Stream.t} with a reusable output buffer. *)
+
+  val make : ?out_buf:Bstr.t -> Stream.t -> t
+  (** [make ?out_buf stream] creates a new {!t} from an existing [stream].
 
       @param out_buf
-        the output buffer to use; allocated automatically if omitted.
-      @param stream the stream to use; a fresh one is created if omitted. *)
+        The output buffer to use. If omitted, a buffer of size
+        {!Stream.out_size} is allocated.
 
-  val create : ?dictionary:Dictionary.t -> ?size_limit:int -> unit -> t
-  (** [create ?dictionary ?size_limit ()] returns a fresh state with its own
-      stream and output buffer.
-
-      @param dictionary an optional dictionary used for compression.
-      @param size_limit an optional cap on the decompressed size. *)
+      @param stream The underlying stream context. *)
 
   val feed : t -> Slice_bstr.t -> Slice_bstr.t
-  (** [feed state slice] decompresses [slice] and returns the decompressed
-      output as a slice.
+  (** [feed state slice] decompresses [slice] and returns a slice of the
+      internal output buffer containing the decompressed bytes produced during
+      this call.
+
+      The function loops internally until either all of [slice] has been
+      consumed or no further progress can be made. Because the internal output
+      buffer is reused across iterations, the returned slice reflects only the
+      output of the last iteration; callers that need every byte should provide
+      a sufficiently large [out_buf], or drive {!Stream} directly.
+
+      The returned slice is valid only until the next call to [feed].
+
+      @param state The stateful decompression context.
+      @param slice The compressed input for this step.
+
+      @return
+        A slice pointing to the decompressed output within the internal buffer.
 
       @raise Stream.Already_closed if the underlying stream was closed. *)
 end

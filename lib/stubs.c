@@ -243,6 +243,8 @@ static void check_on_zstd_error(size_t result, const char *fn_name, const char *
 }
 
 ////////////////////////////////////////////////////////////////////////
+//  CONTEXTS
+////////////////////////////////////////////////////////////////////////
 
 void custom_finalize_zstd_cctx_ops(value);
 
@@ -287,8 +289,6 @@ CAMLprim value caml_create_zstd_set_cctx_param(value context, value param_kind, 
   ZSTD_CCtx_setParameter(Zstd_cctx_val(context), Int_val(param_kind), Long_val(param_value));
   CAMLreturn(Val_unit);
 }
-
-////////////////////////////////////////////////////////////////////////
 
 void custom_finalize_zstd_dctx_ops(value);
 
@@ -335,6 +335,8 @@ CAMLprim value caml_create_zstd_set_dctx_param(value context, value param_kind, 
 }
 
 ////////////////////////////////////////////////////////////////////////
+//  DICTIONARIES
+////////////////////////////////////////////////////////////////////////
 
 CAMLprim value caml_create_zstd_load_cdict(value context, value dictionary)
 {
@@ -362,6 +364,8 @@ CAMLprim value caml_create_zstd_load_ddict(value context, value dictionary)
   CAMLreturn(Val_unit);
 }
 
+////////////////////////////////////////////////////////////////////////
+//  MISC
 ////////////////////////////////////////////////////////////////////////
 
 CAMLprim value caml_zstd_version(value unit)
@@ -402,253 +406,6 @@ CAMLprim value caml_get_frame_content_size(value compressed)
 
   if (result == ZSTD_CONTENTSIZE_UNKNOWN)
     raise_zstd_error(-1, "ZSTD_getFrameContentSize", "frame does not carry its content size");
-
-  CAMLreturn(Val_long(result));
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-// COMPRESS
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-CAMLprim value caml_zstd_compress_bigstring(value src_buf, value dst_buf, value level)
-{
-  CAMLparam3(src_buf, dst_buf, level);
-
-  char *const uncompressed_data = Caml_ba_data_val(src_buf);
-  const size_t uncompressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const compressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t compressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  const size_t compression_level = Long_val(level);
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_compress(compressed_output_buffer, compressed_output_buffer_length,
-                                      uncompressed_data, uncompressed_data_length,
-                                      compression_level);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_compress", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_compress_bigstring_with_context(value context, value src_buf, value dst_buf, value level)
-{
-  CAMLparam4(context, src_buf, dst_buf, level);
-
-  char *const uncompressed_data = Caml_ba_data_val(src_buf);
-  const size_t uncompressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const compressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t compressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  const size_t compression_level = Int_val(level);
-
-  ZSTD_CCtx *const compression_context = Zstd_cctx_val(context);
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_compressCCtx(compression_context,
-                                          compressed_output_buffer, compressed_output_buffer_length,
-                                          uncompressed_data, uncompressed_data_length,
-                                          compression_level);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_compressCCtx", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_compress_bigstring_with_context_and_dictionary(value context, value dictionary, value src_buf, value dst_buf, value level)
-{
-  CAMLparam5(context, dictionary, src_buf, dst_buf, level);
-
-  char *const uncompressed_data = Caml_ba_data_val(src_buf);
-  const size_t uncompressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const compressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t compressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  char *const dictionary_string = Caml_ba_data_val(dictionary);
-  const size_t dictionary_string_length = Caml_ba_array_val(dictionary)->dim[0];
-
-  const size_t compression_level = Int_val(level);
-
-  ZSTD_CCtx *const compression_context = Zstd_cctx_val(context);
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_compress_usingDict(compression_context,
-                                                compressed_output_buffer, compressed_output_buffer_length,
-                                                uncompressed_data, uncompressed_data_length,
-                                                dictionary_string, dictionary_string_length,
-                                                compression_level);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_compress_usingDict", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-////////////////////////////////////////////////////////////////////////
-
-CAMLprim value caml_zstd_compress_string(value src_str, value dst_bytes, value level)
-{
-  CAMLparam3(src_str, dst_bytes, level);
-
-  const size_t result = ZSTD_compress(
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str),
-      Int_val(level));
-
-  check_on_zstd_error(result, "ZSTD_compress", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_compress_string_with_context(value context, value src_str, value dst_bytes, value level)
-{
-  CAMLparam4(context, src_str, dst_bytes, level);
-
-  const size_t result = ZSTD_compressCCtx(
-      Zstd_cctx_val(context),
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str),
-      Int_val(level));
-
-  check_on_zstd_error(result, "ZSTD_compressCCtx", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_compress_string_with_context_and_dictionary(value context, value dictionary, value src_str, value dst_bytes, value level)
-{
-  CAMLparam5(context, dictionary, src_str, dst_bytes, level);
-
-  const size_t result = ZSTD_compress_usingDict(
-      Zstd_cctx_val(context),
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str),
-      Caml_ba_data_val(dictionary), Caml_ba_array_val(dictionary)->dim[0],
-      Int_val(level));
-
-  check_on_zstd_error(result, "ZSTD_compress_usingDict", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-// DECOMPRESS
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-CAMLprim value caml_zstd_decompress_string(value src_str, value dst_bytes)
-{
-  CAMLparam2(src_str, dst_bytes);
-
-  const size_t result = ZSTD_decompress(
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str));
-
-  check_on_zstd_error(result, "ZSTD_decompress", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_decompress_string_with_context(value context, value src_str, value dst_bytes)
-{
-  CAMLparam3(context, src_str, dst_bytes);
-
-  const size_t result = ZSTD_decompressDCtx(
-      Zstd_dctx_val(context),
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str));
-
-  check_on_zstd_error(result, "ZSTD_decompressDCtx", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_decompress_string_with_context_and_dictionary(value context, value dictionary, value src_str, value dst_bytes)
-{
-  CAMLparam4(context, dictionary, src_str, dst_bytes);
-
-  const size_t result = ZSTD_decompress_usingDict(
-      Zstd_dctx_val(context),
-      Bytes_val(dst_bytes), caml_string_length(dst_bytes),
-      String_val(src_str), caml_string_length(src_str),
-      Caml_ba_data_val(dictionary), Caml_ba_array_val(dictionary)->dim[0]);
-
-  check_on_zstd_error(result, "ZSTD_decompress_usingDict", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-////////////////////////////////////////////////////////////////////////
-
-CAMLprim value caml_zstd_decompress_bigstring(value src_buf, value dst_buf)
-{
-  CAMLparam2(src_buf, dst_buf);
-
-  char *const compressed_data = Caml_ba_data_val(src_buf);
-  const size_t compressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const uncompressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t uncompressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_decompress(uncompressed_output_buffer, uncompressed_output_buffer_length, compressed_data, compressed_data_length);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_decompress", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_decompress_bigstring_with_context(value context, value src_buf, value dst_buf)
-{
-  CAMLparam3(context, src_buf, dst_buf);
-
-  char *const compressed_data = Caml_ba_data_val(src_buf);
-  const size_t compressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const uncompressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t uncompressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  ZSTD_DCtx *const decompression_context = Zstd_dctx_val(context);
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_decompressDCtx(decompression_context,
-                                            uncompressed_output_buffer, uncompressed_output_buffer_length,
-                                            compressed_data, compressed_data_length);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_decompressDCtx", NULL);
-
-  CAMLreturn(Val_long(result));
-}
-
-CAMLprim value caml_zstd_decompress_bigstring_with_context_and_dictionary(value context, value dictionary, value src_buf, value dst_buf)
-{
-  CAMLparam4(context, src_buf, dst_buf, dictionary);
-
-  char *const compressed_data = Caml_ba_data_val(src_buf);
-  const size_t compressed_data_length = Caml_ba_array_val(src_buf)->dim[0];
-
-  char *const uncompressed_output_buffer = Caml_ba_data_val(dst_buf);
-  const size_t uncompressed_output_buffer_length = Caml_ba_array_val(dst_buf)->dim[0];
-
-  char *const dictionary_string = Caml_ba_data_val(dictionary);
-  const size_t dictionary_string_length = Caml_ba_array_val(dictionary)->dim[0];
-
-  ZSTD_DCtx *const decompression_context = Zstd_dctx_val(context);
-
-  caml_enter_blocking_section();
-  const size_t result = ZSTD_decompress_usingDict(decompression_context,
-                                                  uncompressed_output_buffer, uncompressed_output_buffer_length,
-                                                  compressed_data, compressed_data_length,
-                                                  dictionary_string, dictionary_string_length);
-  caml_leave_blocking_section();
-
-  check_on_zstd_error(result, "ZSTD_decompress_usingDict", NULL);
 
   CAMLreturn(Val_long(result));
 }
@@ -741,42 +498,13 @@ CAMLprim value caml_zstd_compression_stream_out_size(value unit)
 // STREAM DECOMPRESS
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void custom_finalize_zstd_dstream_ops(value);
-
-static struct custom_operations zstd_dstream_ops = {
-    "zstd.DStream",
-    custom_finalize_zstd_dstream_ops,
-    custom_compare_default,
-    custom_hash_default,
-    custom_serialize_default,
-    custom_deserialize_default,
-    custom_compare_ext_default,
-    custom_fixed_length_default};
-
+/*
+ * The value passed to the decompression-stream stubs is created with
+ * [zstd_dctx_ops] (see [Decompressor.unsafe_stream_of_decompressor]); since
+ * [ZSTD_DStream] is a typedef of [ZSTD_DCtx] and the custom block layout is
+ * the same, reading it as [ZSTD_DStream *] is safe.
+ */
 #define Zstd_dstream_val(v) (*((ZSTD_DStream **)Data_custom_val(v)))
-
-void custom_finalize_zstd_dstream_ops(value dstream)
-{
-  ZSTD_freeDStream(Zstd_dstream_val(dstream));
-}
-
-CAMLprim value caml_create_zstd_dstream(value unit)
-{
-  CAMLparam1(unit);
-  CAMLlocal1(dstream_val);
-
-  dstream_val = caml_alloc_custom(&zstd_dstream_ops, sizeof(ZSTD_DStream *), 0, 1);
-  Zstd_dstream_val(dstream_val) = NULL;
-
-  ZSTD_DStream *dstream = ZSTD_createDStream();
-
-  if (dstream == NULL)
-    raise_zstd_error(-1, "ZSTD_createDStream", "NULL");
-
-  Zstd_dstream_val(dstream_val) = dstream;
-
-  CAMLreturn(dstream_val);
-}
 
 CAMLprim value caml_zstd_decompress_stream(value dstream, value in_slice, value out_slice)
 {

@@ -1,113 +1,74 @@
-module Context = struct
-  type t = { cctx : Bindings.compression_context; mutex : Mutex.t }
+type t = { context : Bindings.compression_context; mutex : Mutex.t }
+and compressor = t
 
-  let create () =
-    { cctx = Bindings.create_compression_context (); mutex = Mutex.create () }
+let set_compression_level compressor compression_level =
+  Mutex.protect compressor.mutex @@ fun () ->
+  let open Bindings in
+  set_compression_context_parameter compressor.context
+    Compression_context_parameters.compression_level compression_level
 
-  let set_compression_level context level =
-    Mutex.protect context.mutex @@ fun () ->
-    Bindings.(
-      set_compression_context_parameter context.cctx
-        Compression_context_parameters.compression_level level)
-
-  let load_dictionary context dict =
-    Bindings.load_compression_dictionary context.cctx dict
-end
-
-module Frame = struct
-  type t = [ `String of string | `Bigstring of Bstr.t ]
-
-  let uncompressed_size = function
-    | `String string -> Bindings.get_decompression_size_of_string string
-    | `Bigstring bigstring ->
-        Bindings.get_decompression_size_of_bigstring bigstring
-end
-
-let compress_bigstring_into ?context ?dictionary ~level uncompressed_bigstring
-    compressed_output_bigstring =
-  match (context, dictionary) with
-  | None, None ->
-      Bindings.compress_bigstring uncompressed_bigstring
-        compressed_output_bigstring level
-  | Some context, None ->
-      Mutex.protect context.Context.mutex @@ fun () ->
-      Bindings.compress_bigstring_with_context context.cctx
-        uncompressed_bigstring compressed_output_bigstring level
-  | Some context, Some dictionary ->
-      Mutex.protect context.Context.mutex @@ fun () ->
-      Bindings.compress_bigstring_with_context_and_dictionary context.cctx
-        dictionary uncompressed_bigstring compressed_output_bigstring level
-  | None, Some dictionary ->
-      Bindings.compress_bigstring_with_context_and_dictionary
-        Context.(create ()).cctx dictionary uncompressed_bigstring
-        compressed_output_bigstring level
-
-let compress_bigstring ?context ?dictionary ~level uncompressed_bigstring =
-  let compressed_capacity =
-    Bindings.compress_bound @@ Bstr.length uncompressed_bigstring
-  in
-  let compressed_output_bigstring = Bstr.create compressed_capacity in
-
-  let len =
-    compress_bigstring_into ?context ?dictionary ~level uncompressed_bigstring
-      compressed_output_bigstring
+let create ?dictionary ?compression_level () =
+  let compressor =
+    {
+      context = Bindings.create_compression_context ();
+      mutex = Mutex.create ();
+    }
   in
 
-  Bstr.sub ~off:0 ~len compressed_output_bigstring
+  Option.iter (set_compression_level compressor) compression_level;
+  Option.iter
+    (Bindings.load_compression_dictionary compressor.context)
+    dictionary;
 
-let compress_string_into ?context ?dictionary ~level uncompressed_string
-    compressed_output_bytes =
-  match (context, dictionary) with
-  | None, None ->
-      Bindings.compress_string uncompressed_string compressed_output_bytes level
-  | Some context, None ->
-      Mutex.protect context.Context.mutex @@ fun () ->
-      Bindings.compress_string_with_context context.cctx uncompressed_string
-        compressed_output_bytes level
-  | Some context, Some dictionary ->
-      Mutex.protect context.Context.mutex @@ fun () ->
-      Bindings.compress_string_with_context_and_dictionary context.cctx
-        dictionary uncompressed_string compressed_output_bytes level
-  | None, Some dictionary ->
-      Bindings.compress_string_with_context_and_dictionary
-        Context.(create ()).cctx dictionary uncompressed_string
-        compressed_output_bytes level
+  compressor
 
-let compress_string ?context ?dictionary ~level uncompressed_string =
-  let compressed_capacity =
-    Bindings.compress_bound @@ String.length uncompressed_string
-  in
-  let compressed_output_bytes = Bytes.create compressed_capacity in
-
-  let length =
-    compress_string_into ?context ?dictionary ~level uncompressed_string
-      compressed_output_bytes
+let compress_bigstring_into ~in_slice ~out_slice compressor =
+  let _, _, len =
+    Bindings.compress_stream2 compressor.context in_slice out_slice
+      Bindings.Directive.eend
   in
 
-  if length = Bytes.length compressed_output_bytes then
-    Bytes.unsafe_to_string compressed_output_bytes
-  else Bytes.sub_string compressed_output_bytes 0 length
+  len
+
+let compress_bytes_into ~in_slice ~out_slice compressor =
+  let _, _, len =
+    Bindings.compress_stream2_bytes compressor.context in_slice out_slice
+      Bindings.Directive.eend
+  in
+
+  len
+
+let compress_bigstring compressor uncompressed =
+  let in_slice = Slice_bstr.make uncompressed
+  and out_slice =
+    Bstr.length uncompressed |> Bindings.compress_bound |> Slice_bstr.create
+  in
+
+  let len = compress_bigstring_into ~in_slice ~out_slice compressor in
+  Bstr.sub ~off:0 ~len out_slice.buf
+
+let compress_bytes compressor uncompressed =
+  let in_slice = Slice_bytes.make (Bytes.unsafe_of_string uncompressed)
+  and out_slice =
+    String.length uncompressed |> Bindings.compress_bound |> Slice_bytes.create
+  in
+
+  let len = compress_bytes_into ~in_slice ~out_slice compressor in
+  Slice_bytes.sub_string ~off:0 ~len out_slice
 
 module Stream = struct
-  type t = { context : Context.t; mutable closed : bool }
+  type nonrec t = { compressor : t; mutable closed : bool }
 
-  let create ?dictionary ?level () =
-    let context = Context.create () in
-
-    Option.iter (Context.set_compression_level context) level;
-    Option.iter (Context.load_dictionary context) dictionary;
-
-    { context; closed = false }
-
-  and of_context context = { context; closed = false }
+  let make compressor = { compressor; closed = false }
 
   let in_size () = Bindings.get_compression_stream_in_size ()
   and out_size () = Bindings.get_compression_stream_out_size ()
 
   exception Already_closed
 
-  let[@inline] compress_intf ~in_slice ~out_slice stream directive f =
-    if stream.closed then raise Already_closed;
+  let[@inline] compress_intf ~in_slice ~out_slice
+      ({ compressor; closed } as stream) directive f =
+    if closed then raise Already_closed;
 
     let raw_directive =
       match directive with
@@ -117,8 +78,8 @@ module Stream = struct
     in
 
     let remaining, consumed, compressed =
-      Mutex.protect stream.context.mutex @@ fun () ->
-      f stream.context.cctx in_slice out_slice raw_directive
+      Mutex.protect compressor.mutex @@ fun () ->
+      f compressor.context in_slice out_slice raw_directive
     in
 
     begin match directive with
@@ -128,7 +89,7 @@ module Stream = struct
 
     (~remaining, ~consumed, ~compressed)
 
-  let compress ~in_slice ~out_slice stream directive =
+  let compress_bigstring ~in_slice ~out_slice stream directive =
     compress_intf ~in_slice ~out_slice stream directive
       Bindings.compress_stream2
 
@@ -152,18 +113,12 @@ module State = struct
         | Some out_buf -> out_buf);
     }
 
-  let create ?dictionary ?level () =
-    {
-      stream = Stream.create ?dictionary ?level ();
-      out_buf = Bstr.create @@ Stream.out_size ();
-    }
-
   let feed state slice directive =
     let rec aux in_slice =
       let out_slice = Slice_bstr.make state.out_buf in
 
       let ~remaining, ~consumed, ~compressed =
-        Stream.compress ~in_slice ~out_slice state.stream directive
+        Stream.compress_bigstring ~in_slice ~out_slice state.stream directive
       in
 
       let in_slice_len = Slice_bstr.length in_slice in
@@ -179,8 +134,8 @@ module State = struct
   let finish state = feed state Slice_bstr.empty `End
 end
 
-let compress_channel ?dictionary ~level ic oc =
-  let state = State.create ?dictionary ~level () in
+let compress_channel compressor ic oc =
+  let state = Stream.make compressor |> State.make in
   let in_buf = Bstr.create @@ Stream.in_size () in
 
   let output Slice.{ buf; off; len } =

@@ -26,6 +26,10 @@ let version () =
   let v = Bindings.version () in
   (v / 10_000, v / 100 mod 100, v mod 100)
 
+(** {2 Frame} *)
+
+module Frame = Frame
+
 (** {2 Internals} *)
 
 module Bindings = Bindings
