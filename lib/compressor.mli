@@ -51,10 +51,10 @@ val compress_bigstring_into :
 
     @return The number of bytes written to [out_slice]. *)
 
-val compress_bytes_into :
+val compress_string_into :
   in_slice:Slice_bytes.t -> out_slice:Slice_bytes.t -> t -> int
-(** [compress_bytes_into ~in_slice ~out_slice compressor] compresses the data in
-    [in_slice] into [out_slice].
+(** [compress_string_into ~in_slice ~out_slice compressor] compresses the data
+    in [in_slice] into [out_slice].
 
     This is the [bytes]-based counterpart of {!compress_bigstring_into}.
 
@@ -71,8 +71,8 @@ val compress_bigstring : t -> Bstr.t -> Bstr.t
 
     @return The compressed data. *)
 
-val compress_bytes : t -> string -> string
-(** [compress_bytes compressor input] compresses [input] and returns the result
+val compress_string : t -> string -> string
+(** [compress_string compressor input] compresses [input] and returns the result
     as a new [string].
 
     This function allocates a new string for the output.
@@ -122,7 +122,7 @@ module Stream : sig
 
   exception Already_closed
   (** Raised when attempting to use a stream context that has already been
-      closed with {!close}, or after a [compress_bigstring]/[compress_bytes]
+      closed with {!close}, or after a [compress_bigstring]/[compress_string]
       call that was issued with the [`End] directive. *)
 
   val compress_bigstring :
@@ -150,13 +150,13 @@ module Stream : sig
 
       @raise Already_closed if the stream has been closed. *)
 
-  val compress_bytes :
+  val compress_string :
     in_slice:Slice_bytes.t ->
     out_slice:Slice_bytes.t ->
     t ->
     [< `Continue | `End | `Flush ] ->
     (remaining:int * consumed:int * compressed:int)
-  (** [compress_bytes] is the [bytes]-based counterpart of
+  (** [compress_string] is the [bytes]-based counterpart of
       {!compress_bigstring}. *)
 
   val close : t -> unit

@@ -37,7 +37,7 @@ let decompress_bigstring_into ~in_slice ~out_slice decompressor =
 
   len
 
-let decompress_bytes_into ~in_slice ~out_slice decompressor =
+let decompress_string_into ~in_slice ~out_slice decompressor =
   let _, _, len =
     Mutex.protect decompressor.mutex @@ fun () ->
     Bindings.decompress_stream_bytes
@@ -59,14 +59,14 @@ let decompress_bigstring decompressor compressed =
 
   out_slice.buf
 
-let decompress_bytes decompressor compressed =
+let decompress_string decompressor compressed =
   let compressed_frame = Frame.of_string compressed in
   let content_size = Frame.uncompressed_size compressed_frame in
 
   let out_slice = Slice_bytes.create content_size
   and in_slice = Slice_bytes.make (Bytes.unsafe_of_string compressed) in
 
-  let len = decompress_bytes_into ~in_slice ~out_slice decompressor in
+  let len = decompress_string_into ~in_slice ~out_slice decompressor in
   assert (len = content_size);
 
   Bytes.unsafe_to_string out_slice.buf
@@ -94,7 +94,7 @@ module Stream = struct
   let decompress_bigstring ~in_slice ~out_slice stream =
     decompress_intf ~in_slice ~out_slice stream Bindings.decompress_stream
 
-  let decompress_bytes ~in_slice ~out_slice stream =
+  let decompress_string ~in_slice ~out_slice stream =
     decompress_intf ~in_slice ~out_slice stream Bindings.decompress_stream_bytes
 
   let close stream =

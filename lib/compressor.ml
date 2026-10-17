@@ -33,7 +33,7 @@ let compress_bigstring_into ~in_slice ~out_slice compressor =
 
   len
 
-let compress_bytes_into ~in_slice ~out_slice compressor =
+let compress_string_into ~in_slice ~out_slice compressor =
   let _, _, len =
     Mutex.protect compressor.mutex @@ fun () ->
     Bindings.compress_stream2_bytes compressor.context in_slice out_slice
@@ -51,13 +51,13 @@ let compress_bigstring compressor uncompressed =
   let len = compress_bigstring_into ~in_slice ~out_slice compressor in
   Bstr.sub ~off:0 ~len out_slice.buf
 
-let compress_bytes compressor uncompressed =
+let compress_string compressor uncompressed =
   let in_slice = Slice_bytes.make (Bytes.unsafe_of_string uncompressed)
   and out_slice =
     String.length uncompressed |> Bindings.compress_bound |> Slice_bytes.create
   in
 
-  let len = compress_bytes_into ~in_slice ~out_slice compressor in
+  let len = compress_string_into ~in_slice ~out_slice compressor in
   Slice_bytes.sub_string ~off:0 ~len out_slice
 
 module Stream = struct
@@ -97,7 +97,7 @@ module Stream = struct
     compress_intf ~in_slice ~out_slice stream directive
       Bindings.compress_stream2
 
-  let compress_bytes ~in_slice ~out_slice stream directive =
+  let compress_string ~in_slice ~out_slice stream directive =
     compress_intf ~in_slice ~out_slice stream directive
       Bindings.compress_stream2_bytes
 

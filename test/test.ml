@@ -15,11 +15,11 @@ let text_data length =
 let roundtrip_bytes ?compression_level ?dictionary input =
   let compressor = Compressor.create ?compression_level ?dictionary () in
   let decompressor = Decompressor.create ?dictionary () in
-  let compressed = Compressor.compress_bytes compressor input in
+  let compressed = Compressor.compress_string compressor input in
   let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
   let out_slice = Slice_bytes.create (max 1 (String.length input)) in
   let decompressed_length =
-    Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+    Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
   in
   Slice_bytes.sub_string ~off:0 ~len:decompressed_length out_slice
 
@@ -75,11 +75,11 @@ let level_tests =
         Compressor.set_compression_level compressor 5;
         let decompressor = Decompressor.create () in
         let input = "hello" in
-        let compressed = Compressor.compress_bytes compressor input in
+        let compressed = Compressor.compress_string compressor input in
         let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
         let out_slice = Slice_bytes.create (String.length input) in
         let decompressed_length =
-          Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+          Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
         in
         Alcotest.(check string)
           "after set" input
@@ -88,11 +88,12 @@ let level_tests =
         let compressor = Compressor.create () in
         let decompressor = Decompressor.create () in
         let roundtrip input =
-          let compressed = Compressor.compress_bytes compressor input in
+          let compressed = Compressor.compress_string compressor input in
           let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
           let out_slice = Slice_bytes.create (String.length input) in
           let decompressed_length =
-            Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+            Decompressor.decompress_string_into ~in_slice ~out_slice
+              decompressor
           in
           Slice_bytes.sub_string ~off:0 ~len:decompressed_length out_slice
         in
@@ -169,12 +170,12 @@ let frame_tests =
     Alcotest.test_case "frame of_string valid" `Quick (fun () ->
         let compressor = Compressor.create () in
         let input = "hello world" in
-        let compressed = Compressor.compress_bytes compressor input in
+        let compressed = Compressor.compress_string compressor input in
         let frame = Frame.of_string compressed in
         match Frame.uncompressed_size frame with
         | size -> Alcotest.(check int) "size" (String.length input) size
         | exception _ ->
-            (* [compress_bytes] goes through the streaming API and may not
+            (* [compress_string] goes through the streaming API and may not
                embed a content size in the frame header. That is acceptable. *)
             ());
     Alcotest.test_case "frame of_string invalid" `Quick (fun () ->
@@ -204,7 +205,7 @@ let into_tests =
           Slice_bytes.create (Bindings.compress_bound (String.length input))
         in
         let compressed_length =
-          Compressor.compress_bytes_into ~in_slice ~out_slice compressor
+          Compressor.compress_string_into ~in_slice ~out_slice compressor
         in
         let compressed =
           Slice_bytes.sub_string ~off:0 ~len:compressed_length out_slice
@@ -212,7 +213,7 @@ let into_tests =
         let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
         let out_slice = Slice_bytes.create (String.length input) in
         let decompressed_length =
-          Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+          Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
         in
         let result =
           Slice_bytes.sub_string ~off:0 ~len:decompressed_length out_slice
@@ -247,7 +248,7 @@ let stream_tests =
         in
         let result = Bstr.sub ~off:0 ~len:decompressed_length out_slice.buf in
         Alcotest.(check string) "stream roundtrip" input (bstr_to_string result));
-    Alcotest.test_case "stream compress_bytes" `Quick (fun () ->
+    Alcotest.test_case "stream compress_string" `Quick (fun () ->
         let compressor = Compressor.create () in
         let input = "stream bytes data" in
         let stream = Compressor.Stream.make compressor in
@@ -256,7 +257,7 @@ let stream_tests =
           Slice_bytes.create (Bindings.compress_bound (String.length input))
         in
         let ~remaining, ~consumed, ~compressed =
-          Compressor.Stream.compress_bytes ~in_slice ~out_slice stream `End
+          Compressor.Stream.compress_string ~in_slice ~out_slice stream `End
         in
         Alcotest.(check int) "all input consumed" (String.length input) consumed;
         Alcotest.(check int) "all input used" 0 remaining;
@@ -265,7 +266,7 @@ let stream_tests =
         let in_slice = Slice_bytes.make (Bytes.of_string compressed_string) in
         let out_slice = Slice_bytes.create (String.length input) in
         let decompressed_length =
-          Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+          Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
         in
         Alcotest.(check string)
           "stream bytes" input
@@ -326,7 +327,7 @@ let state_tests =
         let compressor = Compressor.create () in
         let decompressor = Decompressor.create () in
         let input = "state decompress data" in
-        let compressed = Compressor.compress_bytes compressor input in
+        let compressed = Compressor.compress_string compressor input in
         let compressed_bigstring = bstr_of_string compressed in
         let stream = Decompressor.Stream.make decompressor in
         let output_buffer = Bstr.create (String.length input + 1024) in
@@ -404,11 +405,11 @@ let size_limit_tests =
         let compressor = Compressor.create () in
         let decompressor = Decompressor.create ~size_limit:(1 lsl 20) () in
         let input = "size limit test" in
-        let compressed = Compressor.compress_bytes compressor input in
+        let compressed = Compressor.compress_string compressor input in
         let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
         let out_slice = Slice_bytes.create (String.length input) in
         let decompressed_length =
-          Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+          Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
         in
         Alcotest.(check string)
           "size limit" input
@@ -418,11 +419,11 @@ let size_limit_tests =
         let decompressor = Decompressor.create () in
         Decompressor.set_size_limit decompressor (1 lsl 20);
         let input = "set limit after" in
-        let compressed = Compressor.compress_bytes compressor input in
+        let compressed = Compressor.compress_string compressor input in
         let in_slice = Slice_bytes.make (Bytes.of_string compressed) in
         let out_slice = Slice_bytes.create (String.length input) in
         let decompressed_length =
-          Decompressor.decompress_bytes_into ~in_slice ~out_slice decompressor
+          Decompressor.decompress_string_into ~in_slice ~out_slice decompressor
         in
         Alcotest.(check string)
           "set size limit" input
@@ -433,17 +434,20 @@ let error_tests =
   [
     Alcotest.test_case "decompress invalid data" `Quick (fun () ->
         let decompressor = Decompressor.create () in
-        match Decompressor.decompress_bytes decompressor "not a zstd frame" with
+        match
+          Decompressor.decompress_string decompressor "not a zstd frame"
+        with
         | exception Invalid_argument msg when msg = "not a zstd frame" -> ()
         | _ ->
             Alcotest.fail
-              "decompress_bytes: expected Zstd_error on non-frame input");
+              "decompress_string: expected Zstd_error on non-frame input");
     Alcotest.test_case "decompress empty" `Quick (fun () ->
         let decompressor = Decompressor.create () in
-        match Decompressor.decompress_bytes decompressor "" with
+        match Decompressor.decompress_string decompressor "" with
         | exception Invalid_argument _ -> ()
         | _ ->
-            Alcotest.fail "decompress_bytes: expected Zstd_error on empty input");
+            Alcotest.fail
+              "decompress_string: expected Zstd_error on empty input");
   ]
 
 (* --- Entry point -------------------------------------------------------- *)

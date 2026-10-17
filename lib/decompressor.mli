@@ -55,9 +55,9 @@ val decompress_bigstring_into :
 
     @return The number of bytes written to [out_slice]. *)
 
-val decompress_bytes_into :
+val decompress_string_into :
   in_slice:Slice_bytes.t -> out_slice:Slice_bytes.t -> t -> int
-(** [decompress_bytes_into ~in_slice ~out_slice decompressor] decompresses the
+(** [decompress_string_into ~in_slice ~out_slice decompressor] decompresses the
     data in [in_slice] into [out_slice].
 
     This is the [bytes]-based counterpart of {!decompress_bigstring_into}; the
@@ -74,7 +74,7 @@ val decompress_bigstring : t -> Bstr.t -> Bstr.t
     The destination size is read from the frame header using
     [Frame.uncompressed_size], so [compressed] must be a frame that stores its
     content size. Frames produced by {!Zstandard.Compressor.compress_bigstring}
-    and {!Zstandard.Compressor.compress_bytes} satisfy this condition; frames
+    and {!Zstandard.Compressor.compress_string} satisfy this condition; frames
     produced by the streaming API may not — use {!decompress_bigstring_into} for
     those.
 
@@ -83,8 +83,8 @@ val decompress_bigstring : t -> Bstr.t -> Bstr.t
 
     @return A fresh bigstring holding the decompressed data. *)
 
-val decompress_bytes : t -> string -> string
-(** [decompress_bytes decompressor compressed] decompresses the compressed
+val decompress_string : t -> string -> string
+(** [decompress_string decompressor compressed] decompresses the compressed
     string [compressed] and returns the original data as a new [bytes].
 
     The destination size is read from the frame header, so [compressed] must be
@@ -163,12 +163,12 @@ module Stream : sig
 
       @raise Already_closed if [stream] was closed. *)
 
-  val decompress_bytes :
+  val decompress_string :
     in_slice:Slice_bytes.t ->
     out_slice:Slice_bytes.t ->
     t ->
     (remaining:int * consumed:int * decompressed:int)
-  (** [decompress_bytes] is the [bytes]-based counterpart of
+  (** [decompress_string] is the [bytes]-based counterpart of
       {!decompress_bigstring}.
 
       {b Runtime note.} Unlike bigstrings, [bytes] block the OCaml runtime while
