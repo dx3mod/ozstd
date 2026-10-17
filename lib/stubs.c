@@ -348,9 +348,13 @@ CAMLprim value caml_create_zstd_load_cdict(value context, value dictionary)
 {
   CAMLparam2(context, dictionary);
 
-  const size_t result = ZSTD_CCtx_loadDictionary(Zstd_cctx_val(context),
-                                                 Caml_ba_data_val(dictionary),
-                                                 Caml_ba_array_val(dictionary)->dim[0]);
+  ZSTD_CCtx *const cctx = Zstd_cctx_val(context);
+  void *const dict_data = Caml_ba_data_val(dictionary);
+  const size_t dict_size = Caml_ba_array_val(dictionary)->dim[0];
+
+  caml_enter_blocking_section();
+  const size_t result = ZSTD_CCtx_loadDictionary(cctx, dict_data, dict_size);
+  caml_leave_blocking_section();
 
   check_on_zstd_error(result, "ZSTD_CCtx_loadDictionary", NULL);
 
@@ -361,9 +365,13 @@ CAMLprim value caml_create_zstd_load_ddict(value context, value dictionary)
 {
   CAMLparam2(context, dictionary);
 
-  const size_t result = ZSTD_DCtx_loadDictionary(Zstd_dctx_val(context),
-                                                 Caml_ba_data_val(dictionary),
-                                                 Caml_ba_array_val(dictionary)->dim[0]);
+  ZSTD_DCtx *const dctx = Zstd_dctx_val(context);
+  void *const dict_data = Caml_ba_data_val(dictionary);
+  const size_t dict_size = Caml_ba_array_val(dictionary)->dim[0];
+
+  caml_enter_blocking_section();
+  const size_t result = ZSTD_DCtx_loadDictionary(dctx, dict_data, dict_size);
+  caml_leave_blocking_section();
 
   check_on_zstd_error(result, "ZSTD_DCtx_loadDictionary", NULL);
 
