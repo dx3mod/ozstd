@@ -27,6 +27,10 @@ val set_size_limit : t -> int -> unit
     @param decompressor The decompressor to configure.
     @param size The new upper bound on the window size, in bytes. *)
 
+val set_dictionary : t -> Dictionary.t -> unit
+(** [set_dictionary compressor dictionary] sets the decompression dictionary of
+    an existing [compressor] *)
+
 (** {2 Bulk decompression} *)
 
 (** {3 Decompression into buffer} *)

@@ -3,8 +3,13 @@ and decompressor = t
 
 let set_size_limit decompressor size =
   let log2 x = log x /. log 2.0 |> int_of_float in
+  Mutex.protect decompressor.mutex @@ fun () ->
   Bindings.set_decompression_context_parameter decompressor.context 100
   @@ log2 @@ float_of_int size
+
+let set_dictionary decompressor dictionary =
+  Mutex.protect decompressor.mutex @@ fun () ->
+  Bindings.load_decompression_dictionary decompressor.context dictionary
 
 let create ?size_limit ?dictionary () =
   let decompressor =
@@ -14,10 +19,7 @@ let create ?size_limit ?dictionary () =
     }
   in
 
-  Option.iter
-    (Bindings.load_decompression_dictionary decompressor.context)
-    dictionary;
-
+  Option.iter (set_dictionary decompressor) dictionary;
   Option.iter (set_size_limit decompressor) size_limit;
 
   decompressor
@@ -27,6 +29,7 @@ let unsafe_stream_of_decompressor : t -> Bindings.decompression_stream =
 
 let decompress_bigstring_into ~in_slice ~out_slice decompressor =
   let _, _, len =
+    Mutex.protect decompressor.mutex @@ fun () ->
     Bindings.decompress_stream
       (unsafe_stream_of_decompressor decompressor)
       in_slice out_slice
@@ -36,6 +39,7 @@ let decompress_bigstring_into ~in_slice ~out_slice decompressor =
 
 let decompress_bytes_into ~in_slice ~out_slice decompressor =
   let _, _, len =
+    Mutex.protect decompressor.mutex @@ fun () ->
     Bindings.decompress_stream_bytes
       (unsafe_stream_of_decompressor decompressor)
       in_slice out_slice
@@ -45,20 +49,26 @@ let decompress_bytes_into ~in_slice ~out_slice decompressor =
 
 let decompress_bigstring decompressor compressed =
   let compressed_frame = Frame.of_bigstring compressed in
+  let content_size = Frame.uncompressed_size compressed_frame in
 
-  let out_slice = Slice_bstr.create @@ Frame.uncompressed_size compressed_frame
+  let out_slice = Slice_bstr.create content_size
   and in_slice = Slice_bstr.make compressed in
 
-  let _ = decompress_bigstring_into ~in_slice ~out_slice decompressor in
+  let len = decompress_bigstring_into ~in_slice ~out_slice decompressor in
+  assert (len = content_size);
+
   out_slice.buf
 
 let decompress_bytes decompressor compressed =
   let compressed_frame = Frame.of_string compressed in
+  let content_size = Frame.uncompressed_size compressed_frame in
 
-  let out_slice = Slice_bytes.create @@ Frame.uncompressed_size compressed_frame
+  let out_slice = Slice_bytes.create content_size
   and in_slice = Slice_bytes.make (Bytes.unsafe_of_string compressed) in
 
-  let _ = decompress_bytes_into ~in_slice ~out_slice decompressor in
+  let len = decompress_bytes_into ~in_slice ~out_slice decompressor in
+  assert (len = content_size);
+
   Bytes.unsafe_to_string out_slice.buf
 
 module Stream = struct

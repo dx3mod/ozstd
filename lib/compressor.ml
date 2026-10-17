@@ -7,6 +7,10 @@ let set_compression_level compressor compression_level =
   set_compression_context_parameter compressor.context
     Compression_context_parameters.compression_level compression_level
 
+let set_dictionary compressor dictionary =
+  Mutex.protect compressor.mutex @@ fun () ->
+  Bindings.load_compression_dictionary compressor.context dictionary
+
 let create ?dictionary ?compression_level () =
   let compressor =
     {
@@ -16,14 +20,13 @@ let create ?dictionary ?compression_level () =
   in
 
   Option.iter (set_compression_level compressor) compression_level;
-  Option.iter
-    (Bindings.load_compression_dictionary compressor.context)
-    dictionary;
+  Option.iter (set_dictionary compressor) dictionary;
 
   compressor
 
 let compress_bigstring_into ~in_slice ~out_slice compressor =
   let _, _, len =
+    Mutex.protect compressor.mutex @@ fun () ->
     Bindings.compress_stream2 compressor.context in_slice out_slice
       Bindings.Directive.eend
   in
@@ -32,6 +35,7 @@ let compress_bigstring_into ~in_slice ~out_slice compressor =
 
 let compress_bytes_into ~in_slice ~out_slice compressor =
   let _, _, len =
+    Mutex.protect compressor.mutex @@ fun () ->
     Bindings.compress_stream2_bytes compressor.context in_slice out_slice
       Bindings.Directive.eend
   in

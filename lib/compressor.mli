@@ -26,9 +26,12 @@ val set_compression_level : t -> int -> unit
 (** [set_compression_level compressor compression_level] sets the compression
     level of an existing [compressor].
 
-    @param compressor The compressor whose level is to be changed.
     @param compression_level
       The new level, from [1] (fastest) to [22] (best ratio). *)
+
+val set_dictionary : t -> Dictionary.t -> unit
+(** [set_dictionary compressor dictionary] sets the compression dictionary of an
+    existing [compressor] *)
 
 (** {2 Bulk compression} *)
 

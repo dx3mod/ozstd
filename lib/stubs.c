@@ -286,7 +286,9 @@ CAMLprim value caml_create_zstd_cctx_s(value unit)
 CAMLprim value caml_create_zstd_set_cctx_param(value context, value param_kind, value param_value)
 {
   CAMLparam3(context, param_kind, param_value);
-  const size_t result = (Zstd_cctx_val(context), Int_val(param_kind), Long_val(param_value));
+  const size_t result = ZSTD_CCtx_setParameter(Zstd_cctx_val(context),
+                                               Int_val(param_kind),
+                                               Long_val(param_value));
   check_on_zstd_error(result, "ZSTD_CCtx_setParameter", NULL);
   CAMLreturn(Val_unit);
 }
@@ -331,7 +333,9 @@ CAMLprim value caml_create_zstd_dctx_s(value unit)
 CAMLprim value caml_create_zstd_set_dctx_param(value context, value param_kind, value param_value)
 {
   CAMLparam3(context, param_kind, param_value);
-  const size_t result = (Zstd_dctx_val(context), Int_val(param_kind), Long_val(param_value));
+  const size_t result = ZSTD_DCtx_setParameter(Zstd_dctx_val(context),
+                                               Int_val(param_kind),
+                                               Long_val(param_value));
   check_on_zstd_error(result, "ZSTD_DCtx_setParameter", NULL);
   CAMLreturn(Val_unit);
 }
