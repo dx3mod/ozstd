@@ -27,7 +27,8 @@
    (>= 5.5.0))
   dune-configurator
   bstr
-  slice
+  (slice
+   (>= 0.1.0))
   conf-zstd
   (alcotest :with-test))
  (tags (clib:zstd)))
