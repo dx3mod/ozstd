@@ -1,5 +1,4 @@
-type zstd_error_code =
-  | No_error
+type error_code =
   | Generic
   | Prefix_unknown
   | Version_unsupported
@@ -35,10 +34,9 @@ type zstd_error_code =
   | Sequence_producer_failed
   | External_sequences_invalid
   | Max_code
+  | Corrupt_frame
 
-exception Zstd_error of zstd_error_code * string * string
-(** [Zstd_error code func message] is raised when the underlying Zstandard C
-    library reports an error, with [message] the error reported by zstd. *)
+exception Zstd_error of error_code * string * string
 
 let () =
   Callback.register_exception "ozstd_zstd_error"

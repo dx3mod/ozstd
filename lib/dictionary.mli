@@ -1,21 +1,23 @@
-(** The Zstandard dictionaries module.
+(** Zstandard compression and decompression dictionary.
 
-    Dictionaries are pre-trained samples that make compression of small, similar
-    messages much more effective.
+    The compression ratio achievable on small data can be significantly improved
+    using a dictionary. Dictionaries can be either plain or trained:
 
-    A dictionary is an opaque value as far as this library is concerned: any
-    byte sequence produced by zstd's [ZDICT_trainFromBuffer] (or another zstd
-    tool) is a valid {!t}.
-
-    Load one onto a {!Ozstd.Compressor.Context} or {!Ozstd.Decompressor.Context}
-    to apply it to every call using that context, or pass it directly to the
-    one-shot and streaming functions that accept it *)
+    - Plain dictionaries consist of unstructured datasets.
+    - Trained (or prepared) dictionaries incorporate a structured dataset
+      optimized for Zstandard. *)
 
 type t = private Bstr.t
-(** A bigstring dictionary. *)
+(** The type for dictionaries, represented as a private bigstring to prevent
+    type confusion with regular data bigstrings. *)
 
 val of_bigstring : Bstr.t -> t
-(** [of_bigstring dict] *)
+(** [of_bigstring bigstring] validates and wraps the given bigstring into a
+    dictionary.
 
-val of_string : string -> t
-(** [of_string dict] *)
+    @raise Invalid_argument if the dictionary content is invalid.
+
+    @return A validated dictionary value of type [t]. *)
+
+val of_string : string -> Bstr.t
+(** [of_string s] is like {!of_bigstring} but uses [string] values. *)

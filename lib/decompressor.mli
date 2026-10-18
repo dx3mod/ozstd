@@ -1,192 +1,215 @@
-(** The Zstandard decompression module.
-
-    This module provides functions for both bulk and streaming decompression. *)
+(** Zstandard decompression module. *)
 
 type t
-(** The decompressor holds an internal state that can be reused across multiple
-    calls to eliminate re-initialization overhead. *)
+(** The type for an explicit decompression context that must be allocated once
+    and reused across successive decompression operations, improving memory
+    efficiency.
+
+    {b Note:}
+    - Reusing a context is a performance and resource optimization and does not
+      affect the decompression output.
+    - In multi-threaded environments, use a separate context per thread for
+      parallel execution. *)
 
 and decompressor = t
-(** Alias for {!t}. *)
 
 val create : ?size_limit:int -> ?dictionary:Dictionary.t -> unit -> t
-(** [create ?size_limit ?dictionary ()]
+(** [create ?size_limit ?dictionary ()] creates a new decompressor with
+    parameters.
 
-    Creates a new decompressor.
-
-    @param size_limit
-      An optional cap on the sliding window size. See also {!set_size_limit}.
-
-    @param dictionary
-      An optional dictionary to load into the decompressor context. *)
+    The [size_limit] sets a maximum size limit (in bytes) beyond which the
+    streaming API refuses to allocate a memory buffer, protecting the host from
+    unreasonable memory requirements. This parameter is relevant only in
+    streaming mode, as no internal buffers are allocated in single-frame mode.
+*)
 
 val set_size_limit : t -> int -> unit
-(** [set_size_limit decompressor size]
-
-    Limits the maximum size of the sliding window accepted by the decompressor
-    to [size] bytes, protecting against decompression bombs.
-
-    @param size The maximum allowed window size in bytes. *)
+(** [set_size_limit decompressor limit] sets a maximum size limit (in bytes) for
+    the decompressor. *)
 
 val set_dictionary : t -> Dictionary.t -> unit
-(** [set_dictionary compressor dictionary]
+(** [set_dictionary decompressor dictionary] loads a new dictionary for the
+    decompressor. *)
 
-    Loads the dictionary into the decompressor context. *)
+(** {2 One-shot decompression}
 
-(** {2 Bulk decompression} *)
+    This section describes functions for one-shot decompression of Zstandard
+    frames. *)
 
-(** {3 Decompression into buffer}
-
-    Perform explicit decompression with full control over input and output
-    buffers. *)
+(** {3 Into already allocated buffers} *)
 
 val decompress_bigstring_into :
   in_slice:Slice_bstr.t -> out_slice:Slice_bstr.t -> t -> int
-(** [decompress_bigstring_into ~in_slice ~out_slice decompressor]
+(** [decompress_bigstring_into ~in_slice ~out_slice decompressor] decompresses
+    the compressed Zstandard [in_slice] content frame into the already allocated
+    [out_slice].
 
-    Decompresses [in_slice] directly into the pre-allocated [out_slice] buffer.
+    @raise Zstd_error
+      If the [out_slice] is too small, if memory allocation fails, or if invalid
+      parameters are provided.
 
-    Requires manual buffer control, making the user responsible for sizing the
-    buffers correctly.
-
-    @param in_slice The compressed input data.
-    @param out_slice
-      The destination output buffer; it must be large enough to hold the full
-      decompressed data.
-
-    @return The number of bytes written to [out_slice]. *)
+    @return Decompressed size written into the [out_slice]. *)
 
 val decompress_string_into :
   in_slice:Slice_bytes.t -> out_slice:Slice_bytes.t -> t -> int
-(** [decompress_string_into ~in_slice ~out_slice decompressor]
+(** [decompress_string_into ~in_slice ~out_slice decompressor] is like
+    {!decompress_bigstring_into} but uses [string] values. *)
 
-    Similar to {!decompress_bigstring_into}, but for [string] type values. *)
-
-(** {3 Single decompression} *)
+(** {3 Into fresh buffers} *)
 
 val decompress_bigstring : t -> Bstr.t -> Bstr.t
-(** [decompress_bigstring decompressor bigstring]
+(** [decompress_bigstring decompressor frame] decompresses the compressed
+    Zstandard content frame into a newly allocated bigstring.
 
-    Decompresses the compressed bigstring frame into a newly allocated
-    uncompressed bigstring. *)
+    @raise Zstd_error if decompression fails.
+
+    @return A newly allocated bigstring containing the decompressed frame. *)
 
 val decompress_string : t -> string -> string
-(** [decompress_string decompressor string]
-
-    Similiar to {!decompress_bigstring}, but for [string] type values. *)
-
-val decompress_channel : decompressor -> in_channel -> out_channel -> unit
-(** [decompress_channel decompressor ic oc]
-
-    Decompresses data from an input channel into an output channel.
-
-    @param ic The input channel holding compressed data.
-    @param oc The output channel for decompressed data. *)
+(** [decompress_string decompressor contents] is like {!decompress_bigstring}
+    but uses [string] values. *)
 
 (** {2 Streaming decompression}
 
-    The streaming API is suitable for unbounded or large data streams where the
-    entire input cannot be held in memory at once, or for frames that do not
-    store their content size. *)
+    This section describes abstractions for streaming decompression. *)
+
+val decompress_bigstring_stream :
+  pull:(unit -> Slice_bstr.t option) -> push:(Slice_bstr.t -> unit) -> t -> unit
+(** [decompress_bigstring_stream ~pull ~push compressor] decompresses a data
+    stream by repeatedly pulling input slices from [pull] until [None] is
+    returned, and pushing the resulting uncompressed chunks to [push].
+
+    {b Example}.
+
+    {[
+    let pull () = read_slice source and push slice = write_slice destination in
+
+    Ozstd.Decompressor.decompress_bigstring_stream ~pull ~push decompressor
+    ]}
+
+    @raise Zstd_error if compression fails. *)
+
+val decompress_channel : decompressor -> in_channel -> out_channel -> unit
+(** [decompress_channel decompressor ic oc] decompresses data from the input
+    channel [ic] into the output channel [oc] using streaming decompression.
+
+    @raise Zstd_error if decompression fails. *)
+
+(** {3 Manual streaming decompression} *)
 
 module Stream : sig
+  (** Manual streaming decompression.
+
+      {b Example}.
+
+      {[
+      let stream =
+        let decompressor = Ozstd.Decompressor.create () in
+        Ozstd.Decompressor.Stream.make decompressor
+
+      let in_slice =
+        Slice_bstr.make compressed_data (* holds a complete Zstandard frame *)
+
+      and out_slice = Slice_bstr.create @@ Ozstd.Decompressor.Stream.out_size ()
+
+      let ~remaining, ~consumed, ~decompressed =
+        Ozstd.Decompressor.Stream.decompress_bigstring ~in_slice ~out_slice
+          stream
+      ]} *)
+
   type t
-  (** A streaming decompressor wrapper for incremental data decompression. *)
+  (** The type for streaming decompression contexts, wrapping a decompressor
+      context. *)
 
   val make : decompressor -> t
-  (** [make decompressor]
-
-      Creates a new stream context based on the given [decompressor].
-
-      @param decompressor
-        The decompressor that provides the configuration and dictionary for this
-        stream. *)
+  (** [make decompressor] creates a streaming decompression context from the
+      decompressor context. *)
 
   val in_size : unit -> int
-  (** [in_size ()] returns the recommended input buffer size for decompression.
-  *)
+  (** [in_size ()] returns the recommended input buffer size for streaming
+      decompression functions. *)
 
   val out_size : unit -> int
-  (** [out_size ()] returns the recommended output buffer size for
-      decompression. *)
+  (** [out_size ()] returns the recommended output buffer size for streaming
+      decompression functions. *)
 
   exception Already_closed
-  (** Raised when attempting to use a stream context that has already been
-      closed with {!close}. *)
+  (** Raised when attempting to close an already closed stream context. *)
 
   val decompress_bigstring :
     in_slice:Slice_bstr.t ->
     out_slice:Slice_bstr.t ->
     t ->
     (remaining:int * consumed:int * decompressed:int)
-  (** [decompress_bigstring ~in_slice ~out_slice stream]
+  (** [decompress_bigstring ~in_slice ~out_slice stream] decompresses the
+      [in_slice] content into the [out_slice].
 
-      Incrementally decompresses [in_slice] data into the [out_slice] buffer.
-
-      @param in_slice The input compressed buffer.
-      @param out_slice The output buffer to write decompressed bytes into.
+      @raise Zstd_error if decompression fails.
 
       @return
-        A triple [(~remaining, ~consumed, ~decompressed)] where:
-        - [remaining] is the number of bytes of [in_slice] not yet processed,
-        - [consumed] is the number of bytes of [in_slice] actually consumed,
-        - [decompressed] is the number of bytes written to [out_slice].
-
-      @raise Already_closed if [stream] was closed. *)
+        - [remaining]: the number of bytes remaining in the [in_slice],
+        - [consumed]: the number of bytes consumed from the [in_slice],
+        - [decompressed]: the number of bytes written to the [out_slice]. *)
 
   val decompress_string :
     in_slice:Slice_bytes.t ->
     out_slice:Slice_bytes.t ->
     t ->
     (remaining:int * consumed:int * decompressed:int)
-  (** [decompress_string ~in_slice ~out_slice stream]
-
-      Similiar to {!decompress_bigstring}, but for [string] type values. *)
+  (** [decompress_string ~in_slice ~out_slice stream] is like
+      {!decompress_bigstring} but uses [string] values. *)
 
   val close : t -> unit
-  (** [close stream] closes the [stream].
+  (** [close stream] closes the streaming decompression context.
 
-      @raise Already_closed if [stream] is already closed. *)
+      @raise Already_closed if the stream is already closed. *)
 end
 
-(** {3 Incremental decompression, automated} *)
+(** {3 Automated streaming decompression loop} *)
 
-(** A stateful wrapper around {!Stream} that manages the output buffer and the
-    decompression loop for you. *)
 module State : sig
-  type t
-  (** An automated decompression state.
+  (** Automated streaming decompression loop.
 
-      Bundles a {!Stream.t} with a reusable output buffer. *)
+      {b Example}.
+
+      {[
+      let decompress_sequence_into_channel decompressor seq oc =
+        let state =
+          (* Make a stream abstraction from an existing decompressor *)
+          Ozstd.Decompressor.Stream.make decompressor
+          (* and wraps this stream into a state abstraction. *)
+          |> Ozstd.Decompressor.State.make stream
+        in
+
+        Seq.iter
+          (fun slice ->
+            let Slice.{ buf; off; len } =
+              Ozstd.Decompressor.State.feed state slice
+            in
+
+            Out_channel.output_bigarray oc buf off len)
+          seq
+      ]} *)
+
+  type t
+  (** The type for stateful streaming decompression contexts, wrapping a stream
+      context. *)
 
   val make : ?out_buf:Bstr.t -> Stream.t -> t
-  (** [make ?out_buf stream] creates a new {!t} from an existing [stream].
+  (** [make ?out_buf stream] creates a stateful stream decompression context.
 
       @param out_buf
-        The output buffer to use. If omitted, a buffer of size
-        {!Stream.out_size} is allocated.
-
-      @param stream The underlying stream context. *)
+        Internal decompression buffer. If omitted, a buffer of size [out_size]
+        is allocated automatically. *)
 
   val feed : t -> Slice_bstr.t -> Slice_bstr.t
-  (** [feed state slice]
+  (** [feed state slice] feeds the [slice] content and decompresses it into the
+      internal decompression buffer.
 
-      Incrementally decompresses [slice] and returns a slice of the internal
-      output buffer containing the decompressed bytes produced during this call.
-
-      The function loops internally until either all of [slice] has been
-      consumed or no further progress can be made. Because the internal output
-      buffer is reused across iterations, the returned slice reflects only the
-      output of the last iteration; callers that need every byte should provide
-      a sufficiently large [out_buf], or drive {!Stream} directly.
-
-      The returned slice is valid only until the next call to [feed].
-
-      @param state The stateful decompression context.
-      @param slice The compressed input for this step.
+      @raise Zstd_error if decompression fails.
 
       @return
-        A slice pointing to the decompressed output within the internal buffer.
-
-      @raise Stream.Already_closed if the underlying stream was closed. *)
+        A slice pointing to the decompressed data within the internal buffer.
+        {b Note:} The returned slice is valid only until the next call to
+        [feed]. *)
 end

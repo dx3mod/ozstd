@@ -1,36 +1,56 @@
 (** Low-level bindings to the Zstandard C library. *)
 
 type compression_context = external "ZSTD_CCtx"
+
 and decompression_context = external "ZSTD_DCtx"
+(** The low-level Zstandard compression and decompression contexts. *)
 
 external create_compression_context : unit -> compression_context
   = "caml_create_zstd_cctx_s"
-(** [create_compression_context ()] *)
+(** [create_compression_context ()] creates a new low-level compression context.
 
+    @raise Zstd_error if context creation fails. *)
+
+(** Low-level compression context parameter identifiers. *)
 module Compression_context_parameters = struct
   let compression_level = 100
 end
 
 external set_compression_context_parameter :
   compression_context -> int -> int -> unit = "caml_create_zstd_set_cctx_param"
-(** [set_compression_context_parameter context param value] *)
+(** [set_compression_context_parameter context param value] sets the given
+    [param] to [value] on the compression [context].
+
+    @raise Zstd_error if the parameter or value is invalid. *)
 
 external load_compression_dictionary :
   compression_context -> Dictionary.t -> unit = "caml_create_zstd_load_cdict"
-(** [load_compression_dictionary context dictionary] *)
+(** [load_compression_dictionary context dictionary] loads the [dictionary] into
+    the compression [context].
+
+    @raise Zstd_error if dictionary loading fails. *)
 
 external create_decompression_context : unit -> decompression_context
   = "caml_create_zstd_dctx_s"
-(** [create_decompression_context ()] *)
+(** [create_decompression_context ()] creates a new low-level decompression
+    context.
+
+    @raise Zstd_error if context creation fails. *)
 
 external set_decompression_context_parameter :
   decompression_context -> int -> int -> unit
   = "caml_create_zstd_set_dctx_param"
-(** [set_decompression_context_parameter context param value] *)
+(** [set_decompression_context_parameter context param value] sets the given
+    [param] to [value] on the decompression [context].
+
+    @raise Zstd_error if the parameter or value is invalid. *)
 
 external load_decompression_dictionary :
   decompression_context -> Dictionary.t -> unit = "caml_create_zstd_load_ddict"
-(** [load_decompression_dictionary context dictionary] *)
+(** [load_decompression_dictionary context dictionary] loads the [dictionary]
+    into the decompression [context].
+
+    @raise Zstd_error if dictionary loading fails. *)
 
 type decompression_stream = external "ZSTD_DCtx"
 (** A zstd decompression stream.
@@ -52,19 +72,19 @@ external compress_bound : int -> int = "caml_zstd_compress_bound"
 (** [compress_bound src_size] is the upper bound on the size of the compressed
     output for a source of [src_size] bytes. *)
 
-external get_decompression_size_of_string : string -> int
+external get_frame_content_size_string : string -> int
   = "caml_get_frame_content_size"
-(** [get_decompression_size_of_string compressed] reads the uncompressed content
+(** [get_frame_content_size_string compressed] reads the uncompressed content
     size from the frame header of [compressed].
 
     @raise Zstd_error
       if [compressed] is not a valid zstd frame, or if the frame does not store
       its content size (as produced by the streaming API). *)
 
-external get_decompression_size_of_bigstring : Bstr.t -> int
+external get_frame_content_size_bigstring : Bstr.t -> int
   = "caml_get_frame_content_size"
-(** [get_decompression_size_of_bigstring compressed] is the bigstring
-    counterpart of {!get_decompression_size_of_string}.
+(** [get_frame_content_size_bigstring compressed] is the bigstring counterpart
+    of {!get_frame_content_size_string}.
 
     @raise Zstd_error under the same conditions. *)
 
@@ -87,18 +107,41 @@ external get_compression_stream_in_size : unit -> int
 external compress2_bigstring :
   compression_context -> Slice_bstr.t -> Slice_bstr.t -> int
   = "caml_zstd_compress2_bigstring"
+(** [compress2_bigstring context in_slice out_slice] compresses the Zstandard
+    content frame from [in_slice] into the already allocated [out_slice].
+
+    @return The number of compressed bytes written into [out_slice].
+    @raise Zstd_error if compression fails or buffer parameters are invalid. *)
 
 external compress2_string :
   compression_context -> Slice_bytes.t -> Slice_bytes.t -> int
   = "caml_zstd_compress2_string"
+(** [compress2_string context in_slice out_slice] is the [bytes]-based
+    counterpart of {!compress2_bigstring}.
+
+    {b Runtime note.} Unlike the bigstring variant, this call is not wrapped in
+    [caml_enter_blocking_section]: [bytes] buffers block the OCaml runtime while
+    the C code runs. *)
 
 external decompress_bigstring :
   decompression_context -> Slice_bstr.t -> Slice_bstr.t -> int
   = "caml_zstd_decompress_bigstring"
+(** [decompress_bigstring context in_slice out_slice] decompresses the Zstandard
+    content frame from [in_slice] into the already allocated [out_slice].
+
+    @return The number of decompressed bytes written into [out_slice].
+    @raise Zstd_error if decompression fails or buffer parameters are invalid.
+*)
 
 external decompress_string :
   decompression_context -> Slice_bytes.t -> Slice_bytes.t -> int
   = "caml_zstd_decompress_string"
+(** [decompress_string context in_slice out_slice] is the [bytes]-based
+    counterpart of {!decompress_bigstring}.
+
+    {b Runtime note.} Unlike the bigstring variant, this call is not wrapped in
+    [caml_enter_blocking_section]: [bytes] buffers block the OCaml runtime while
+    the C code runs. *)
 
 (** [Directive.continue], [Directive.flush] and [Directive.eend] are the flush
     directives for the streaming compressor. *)
@@ -115,7 +158,6 @@ external compress_stream2 :
     [ZSTD_compressStream2].
 
     @return [(remaining, consumed, compressed)].
-
     @raise Zstd_error if the underlying call reports an error. *)
 
 external compress_stream2_bytes :
@@ -137,7 +179,6 @@ external decompress_stream :
 (** [decompress_stream stream in_slice out_slice] is [ZSTD_decompressStream].
 
     @return [(remaining, consumed, decompressed)].
-
     @raise Zstd_error if the underlying call reports an error. *)
 
 external decompress_stream_bytes :

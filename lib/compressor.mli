@@ -1,129 +1,141 @@
-(** The Zstandard compression module.
-
-    This module provides functions for both bulk and streaming compression. *)
+(** Zstandard compression module. *)
 
 type t
-(** The compressor type allows compressing multiple chunks of data
-    independently. It can be reused across multiple compression operations to
-    avoid re-initialization overhead. *)
+(** The type for an explicit compression context that must be allocated once and
+    reused across successive compression operations, improving memory
+    efficiency.
+
+    {b Note:}
+    - Reusing a context is a performance and resource optimization and does not
+      affect the compression ratio.
+    - In multi-threaded environments, use a separate context per thread for
+      parallel execution. *)
 
 and compressor = t
-(** Alias for {!t}. *)
 
 val create : ?dictionary:Dictionary.t -> ?compression_level:int -> unit -> t
-(** [create ?dictionary ?compression_level ()] creates a new compressor value.
-
-    @param dictionary
-      An optional dictionary to load. Using a dictionary can significantly
-      improve the compression ratio on small data.
-
-    @param compression_level
-      The zstd quality setting, from [1] (fastest) to [22] (best ratio). Levels
-      greater than or equal to [20] are considered "ultra" and should be used
-      with caution, as they require more memory. *)
+(** [create ?dictionary ?compression_level ()] creates a new compressor with
+    parameters. *)
 
 val set_compression_level : t -> int -> unit
-(** [set_compression_level compressor compression_level] sets the compression
-    level of an existing [compressor].
-
-    @param compression_level
-      The new level, from [1] (fastest) to [22] (best ratio). *)
+(** [set_compression_level compressor level] sets a new compression level for
+    the compressor. *)
 
 val set_dictionary : t -> Dictionary.t -> unit
-(** [set_dictionary compressor dictionary] sets the compression dictionary of an
-    existing [compressor] *)
+(** [set_dictionary compressor dictionary] loads a new dictionary for the
+    compressor. *)
 
-(** {2 Bulk compression} *)
+(** {2 One-shot compression}
 
-(** {3 Compression into buffer} *)
+    This section describes functions for one-shot compression of Zstandard
+    frames. *)
+
+val compression_upper_bound_for_size : int -> int
+(** [compression_upper_bound_for_size size] returns the maximum buffer size
+    required to safely store compressed data for an input of [size] bytes. *)
+
+(** {3 Into already allocated buffers} *)
 
 val compress_bigstring_into :
   in_slice:Slice_bstr.t -> out_slice:Slice_bstr.t -> t -> int
-(** [compress_bigstring_into ~in_slice ~out_slice compressor] compresses the
-    data in [in_slice] into the pre-allocated buffer [out_slice].
+(** [compress_bigstring_into ~in_slice ~out_slice compressor] compresses
+    [in_slice] content as a single Zstandard compressed frame into already
+    allocated [out_slice].
 
-    This is a low-level function that writes directly into a caller-provided
-    buffer, avoiding intermediate allocations.
+    {b Hint}. The compression runs faster if the size of the [out_slice] is
+    greater than or equal to the upper bound on the size of the [in_slice].
 
-    @param in_slice The input data to compress.
-    @param out_slice The output buffer where compressed data is written.
-    @param compressor The compressor to use.
+    @raise Zstd_error
+      If the [out_slice] is too small, if memory allocation fails, or if invalid
+      parameters are provided.
 
-    @return The number of bytes written to [out_slice]. *)
+    @return Compressed size written into the [out_slice]. *)
 
 val compress_string_into :
   in_slice:Slice_bytes.t -> out_slice:Slice_bytes.t -> t -> int
-(** [compress_string_into ~in_slice ~out_slice compressor] compresses the data
-    in [in_slice] into [out_slice].
+(** [compress_string_into ~in_slice ~out_slice compressor] is like
+    {!compress_bigstring_into} but uses [string] values. *)
 
-    This is the [bytes]-based counterpart of {!compress_bigstring_into}.
-
-    @return The number of bytes written to [out_slice]. *)
-
-(** {3 Single compression} *)
+(** {3 Into fresh buffers} *)
 
 val compress_bigstring : t -> Bstr.t -> Bstr.t
-(** [compress_bigstring compressor input] compresses [input] in a single step
-    and returns the compressed data as a fresh [Bstr.t].
+(** [compress_bigstring compressor contents] compresses the [contents] as a
+    single Zstandard compressed frame into a newly allocated bigstring.
 
-    @param compressor The compressor to use.
-    @param input The data to compress.
+    @raise Zstd_error if compression fails.
 
-    @return The compressed data. *)
+    @return A newly allocated bigstring containing the compressed frame. *)
 
 val compress_string : t -> string -> string
-(** [compress_string compressor input] compresses [input] and returns the result
-    as a new [string].
-
-    This function allocates a new string for the output.
-
-    @param compressor The compressor to use.
-    @param input The data to compress.
-
-    @return The compressed data. *)
-
-val compress_channel : t -> in_channel -> out_channel -> unit
-(** [compress_channel compressor ic oc] reads all data from [ic] until EOF,
-    compresses it with [compressor], and writes the result to [oc] as a single
-    zstd frame.
-
-    Internally uses the streaming API with buffers of size {!Stream.in_size} /
-    {!Stream.out_size}, so memory usage is bounded regardless of the channel
-    size. [oc] is flushed before returning. *)
+(** [compress_string compressor contents] is like {!compress_bigstring} but uses
+    [string] values. *)
 
 (** {2 Streaming compression}
 
-    The streaming API is suitable for unbounded or large data streams where the
-    entire input cannot be held in memory at once. *)
+    This section describes abstractions for streaming compression. *)
+
+val compress_bigstring_stream :
+  pull:(unit -> Slice_bstr.t option) -> push:(Slice_bstr.t -> unit) -> t -> unit
+(** [compress_bigstring_stream ~pull ~push compressor] compresses a data stream
+    by repeatedly pulling input slices from [pull] until [None] is returned, and
+    pushing the resulting compressed chunks to [push].
+
+    {b Example}.
+
+    {[
+    let pull () = read_slice source and push slice = write_slice destination in
+
+    Ozstd.Compressor.compress_bigstring_stream ~pull ~push compressor
+    ]}
+
+    @raise Zstd_error if compression fails. *)
+
+val compress_channel : t -> in_channel -> out_channel -> unit
+(** [compress_channel compressor ic oc] compresses data from the input channel
+    [ic] into the output channel [oc] using {!compress_bigstring_stream}.
+
+    @raise Zstd_error if compression fails. *)
+
+(** {3 Manual streaming compression} *)
 
 module Stream : sig
-  type t
-  (** The type of a streaming compression context.
+  (** Manual streaming compression.
 
-      A stream context maintains the internal state needed to compress data
-      incrementally. *)
+      {b Example}.
+
+      {[
+      let stream =
+        let decompressor = Ozstd.Decompressor.create () in
+        Ozstd.Decompressor.Stream.make decompressor
+
+      let in_slice =
+        Slice_bstr.make compressed_data (* holds a complete Zstandard frame *)
+
+      and out_slice = Slice_bstr.create @@ Ozstd.Decompressor.Stream.out_size ()
+
+      let ~remaining, ~consumed, ~decompressed =
+        Ozstd.Decompressor.Stream.decompress_bigstring ~in_slice ~out_slice
+          stream
+      ]} *)
+
+  type t
+  (** The type for streaming compression contexts, wrapping a compressor
+      context. *)
 
   val make : compressor -> t
-  (** [make compressor] creates a new stream context based on the given
-      [compressor].
-
-      @param compressor
-        The compressor that provides the configuration and dictionary for this
-        stream. *)
+  (** [make compressor] creates a streaming compression context from the
+      compressor context. *)
 
   val in_size : unit -> int
-  (** [in_size ()] returns the recommended input buffer size for compression.
-
-      Using buffers of this size can help achieve optimal performance. *)
+  (** [in_size ()] returns the recommended input buffer size for streaming
+      compression functions. *)
 
   val out_size : unit -> int
-  (** [out_size ()] returns the recommended output buffer size for compression.
-  *)
+  (** [out_size ()] returns the recommended output buffer size for streaming
+      compression functions. *)
 
   exception Already_closed
-  (** Raised when attempting to use a stream context that has already been
-      closed with {!close}, or after a [compress_bigstring]/[compress_string]
-      call that was issued with the [`End] directive. *)
+  (** Raised when attempting to close an already closed stream context. *)
 
   val compress_bigstring :
     in_slice:Slice_bstr.t ->
@@ -131,24 +143,33 @@ module Stream : sig
     t ->
     [< `Continue | `End | `Flush ] ->
     (remaining:int * consumed:int * compressed:int)
-  (** [compress_bigstring ~in_slice ~out_slice stream directive] feeds the data
-      in [in_slice] to the compression [stream] and writes any available
-      compressed output to [out_slice].
+  (** [compress_bigstring ~in_slice ~out_slice stream directive] compresses the
+      [in_slice] content as part of a Zstandard compressed frame into the
+      [out_slice] with flushing control via the [directive] parameter.
 
-      The [directive] parameter controls how the stream behaves:
+      The [directive] parameter controls chunk compression:
+      - [`Continue] Collects more data; the encoder decides when to output the
+        compressed result for an optimal compression ratio.
+      - [`Flush] Flushes any data provided so far, creating at least one new
+        block that can be decoded immediately upon reception. The frame
+        continues: future data can still reference previously compressed data,
+        improving compression. {b Note:} Multithreaded compression blocks to
+        flush as much output as possible.
+      - [`End] Flushes any remaining data and closes the current frame.
+        {b Note:} The frame is closed only after the compressed data is fully
+        flushed (when remaining bytes equal 0). Afterward, any additional data
+        starts a new frame.
 
-      - [`Continue]: process input normally without forcing a flush.
-      - [`End]: signal that this is the last chunk; the stream will finalize the
-        compressed frame.
-      - [`Flush]: force the stream to flush all buffered output to [out_slice].
+      {b Note:} Each frame is independent and does not reference content from
+      previous frames.
+
+      @raise Zstd_error if compression fails.
+      @raise Already_closed
 
       @return
-        A triple [(remaining, consumed, compressed)] where:
-        - [remaining] is the number of input bytes that were not consumed,
-        - [consumed] is the number of input bytes that were actually consumed,
-        - [compressed] is the number of bytes written to [out_slice].
-
-      @raise Already_closed if the stream has been closed. *)
+        - [remaining]: the number of bytes remaining in the [in_slice],
+        - [consumed]: the number of bytes consumed from the [in_slice],
+        - [compressed]: the number of bytes written to the [out_slice]. *)
 
   val compress_string :
     in_slice:Slice_bytes.t ->
@@ -156,62 +177,66 @@ module Stream : sig
     t ->
     [< `Continue | `End | `Flush ] ->
     (remaining:int * consumed:int * compressed:int)
-  (** [compress_string] is the [bytes]-based counterpart of
-      {!compress_bigstring}. *)
+  (** [compress_string ~in_slice ~out_slice stream] is like
+      {!compress_bigstring} but uses [string] values. *)
 
   val close : t -> unit
-  (** [close stream] closes the [stream].
+  (** [close stream] closes the streaming compression context.
 
-      After calling [close], the stream must not be used again. Attempting to do
-      so will raise {!Already_closed}. *)
+      @raise Already_closed if the stream is already closed. *)
 end
 
-(** {3 Incremental compression, automated} *)
+(** {3 Automated streaming compression loop} *)
 
-(** A stateful wrapper around {!Stream} that manages the output buffer and the
-    compression loop for you. *)
 module State : sig
-  type t = { stream : Stream.t; out_buf : Bstr.t }
-  (** A higher-level stateful wrapper around a {!Stream.t}.
+  (** Automated streaming compression loop.
 
-      This type bundles a stream context with a reusable output buffer, making
-      it easier to perform repeated compression steps without manually managing
-      buffer allocations.
+      {b Example}.
 
-      Use {!make} to construct a value; the record fields are exposed mainly for
-      introspection and should not be mutated directly. *)
+      {[
+      let compress_sequence_into_channel compressor seq oc =
+        let state =
+          (* Make a stream abstraction from an existing compressor *)
+          Ozstd.Compressor.Stream.make compressor
+          (* and wraps this stream into a state abstraction. *)
+          |> Ozstd.Compressor.State.make stream
+        in
+
+        let output Slice.{ buf; off; len } =
+          Out_channel.output_bigarray oc buf off len
+        in
+
+        Seq.iter
+          (fun slice ->
+            Ozstd.Compressor.State.feed state slice `Continue |> output)
+          seq;
+
+        Ozstd.Compressor.State.finish state |> output
+      ]} *)
+
+  type t
+  (** The type for stateful streaming compression contexts, wrapping a stream
+      context. *)
 
   val make : ?out_buf:Bstr.t -> Stream.t -> t
-  (** [make ?out_buf stream] creates a new {!t} from an existing [stream].
+  (** [make ?out_buf stream] creates a stateful stream compression context.
 
       @param out_buf
-        An optional pre-allocated output buffer. If omitted, a buffer of the
-        recommended size ({!Stream.out_size}) is allocated.
-
-      @param stream The underlying stream context. *)
+        Internal compression buffer. If omitted, a buffer of size [out_size] is
+        allocated automatically. *)
 
   val feed : t -> Slice_bstr.t -> [< `Continue | `End | `Flush ] -> Slice_bstr.t
-  (** [feed state in_slice directive] compresses [in_slice] and returns a slice
-      of the internal output buffer containing the newly produced compressed
-      data.
+  (** [feed state slice directive] feeds the [slice] content and compresses it
+      into the internal compression buffer using {!Stream.compress_bigstring}.
 
-      The returned slice is valid only until the next call to [feed] or
-      {!finish}.
-
-      @param state The stateful compression context.
-      @param in_slice The input data for this step.
-      @param directive
-        The same flushing semantics as in {!Stream.compress_bigstring}.
+      @raise Zstd_error if compression fails.
 
       @return
-        A slice pointing to the compressed output within the internal buffer. *)
+        A slice pointing to the compressed data within the internal buffer.
+        {b Note:} The returned slice is valid only until the next call to
+        [feed]. *)
 
   val finish : t -> Slice_bstr.t
-  (** [finish state] signals the end of the input stream, finalizes compression,
-      and returns any remaining compressed output as a slice.
-
-      After calling [finish], the state should no longer be used for further
-      compression.
-
-      @return A slice containing the final compressed bytes. *)
+  (** [finish state] flushes any remaining data, finalizes the compression
+      stream, and returns the final compressed slice. *)
 end

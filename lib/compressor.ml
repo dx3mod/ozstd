@@ -128,21 +128,31 @@ module State = struct
   let finish state = feed state Slice_bstr.empty `End
 end
 
-let compress_channel compressor ic oc =
+let compress_bigstring_stream ~pull ~push compressor =
   let state = Stream.make compressor |> State.make in
-  let in_buf = Bstr.create @@ Stream.in_size () in
-
-  let output Slice.{ buf; off; len } =
-    Out_channel.output_bigarray oc buf off len
-  in
 
   let rec loop () =
-    match In_channel.input_bigarray ic in_buf 0 (Bstr.length in_buf) with
-    | 0 -> State.finish state |> output
-    | len ->
-        State.feed state Slice_bstr.(make ~len in_buf) `Continue |> output;
+    match pull () with
+    | None -> State.finish state |> push
+    | Some slice ->
+        State.feed state slice `Continue |> push;
         loop ()
   in
 
-  loop ();
-  Out_channel.flush oc
+  loop ()
+
+let compress_channel compressor ic oc =
+  let in_buf = Bstr.create @@ Stream.in_size () in
+
+  let pull () =
+    match In_channel.input_bigarray ic in_buf 0 (Bstr.length in_buf) with
+    | 0 -> None
+    | len -> Some Slice_bstr.(make ~len in_buf)
+  and push Slice.{ buf; off; len } =
+    Out_channel.output_bigarray oc buf off len
+  in
+
+  compress_bigstring_stream ~pull ~push compressor
+
+let[@inline] compression_upper_bound_for_size size =
+  Bindings.compress_bound size

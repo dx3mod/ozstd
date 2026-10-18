@@ -19,9 +19,8 @@
 
 (package
  (name ozstd)
- (synopsis "A small OCaml binding to Zstandard")
- (description
-  "A small OCaml bindings to [Zstandard], wrapping the reference C API in an idiomatic interface")
+ (synopsis
+  "Thin, idiomatic OCaml bindings to Facebook's Zstandard compression library")
  (depends
   (ocaml
    (>= 5.5.0))

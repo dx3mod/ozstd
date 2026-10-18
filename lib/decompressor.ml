@@ -28,43 +28,29 @@ let unsafe_stream_of_decompressor : t -> Bindings.decompression_stream =
  fun { context; _ } -> Obj.magic context
 
 let decompress_bigstring_into ~in_slice ~out_slice decompressor =
-  let _, _, len =
-    Mutex.protect decompressor.mutex @@ fun () ->
-    Bindings.decompress_stream
-      (unsafe_stream_of_decompressor decompressor)
-      in_slice out_slice
-  in
-
-  len
+  Mutex.protect decompressor.mutex @@ fun () ->
+  Bindings.decompress_bigstring decompressor.context in_slice out_slice
 
 let decompress_string_into ~in_slice ~out_slice decompressor =
-  let _, _, len =
-    Mutex.protect decompressor.mutex @@ fun () ->
-    Bindings.decompress_stream_bytes
-      (unsafe_stream_of_decompressor decompressor)
-      in_slice out_slice
-  in
+  Mutex.protect decompressor.mutex @@ fun () ->
+  Bindings.decompress_string decompressor.context in_slice out_slice
 
-  len
-
-let decompress_bigstring decompressor compressed =
-  let compressed_frame = Frame.of_bigstring compressed in
-  let content_size = Frame.uncompressed_size compressed_frame in
+let decompress_bigstring decompressor frame =
+  let content_size = Frame.get_content_size_bigstring frame in
 
   let out_slice = Slice_bstr.create content_size
-  and in_slice = Slice_bstr.make compressed in
+  and in_slice = Slice_bstr.make frame in
 
   let len = decompress_bigstring_into ~in_slice ~out_slice decompressor in
   assert (len = content_size);
 
   out_slice.buf
 
-let decompress_string decompressor compressed =
-  let compressed_frame = Frame.of_string compressed in
-  let content_size = Frame.uncompressed_size compressed_frame in
+let decompress_string decompressor frame =
+  let content_size = Frame.get_content_size_string frame in
 
   let out_slice = Slice_bytes.create content_size
-  and in_slice = Slice_bytes.make (Bytes.unsafe_of_string compressed) in
+  and in_slice = Slice_bytes.make (Bytes.unsafe_of_string frame) in
 
   let len = decompress_string_into ~in_slice ~out_slice decompressor in
   assert (len = content_size);
@@ -132,21 +118,28 @@ module State = struct
     aux slice
 end
 
-let decompress_channel decompressor ic oc =
+let decompress_bigstring_stream ~pull ~push decompressor =
   let state = Stream.make decompressor |> State.make in
-  let in_buf = Bstr.create @@ Stream.in_size () in
 
   let rec loop () =
-    match In_channel.input_bigarray ic in_buf 0 (Bstr.length in_buf) with
-    | 0 -> ()
-    | len ->
-        let Slice.{ buf; off; len } =
-          State.feed state Slice_bstr.(make ~off:0 ~len in_buf)
-        in
-
-        Out_channel.output_bigarray oc buf off len;
+    match pull () with
+    | None -> ()
+    | Some slice ->
+        State.feed state slice |> push;
         loop ()
   in
 
-  loop ();
-  Out_channel.flush oc
+  loop ()
+
+let decompress_channel decompressor ic oc =
+  let in_buf = Bstr.create @@ Stream.in_size () in
+
+  let pull () =
+    match In_channel.input_bigarray ic in_buf 0 (Bstr.length in_buf) with
+    | 0 -> None
+    | len -> Some Slice_bstr.(make ~off:0 ~len in_buf)
+  and push Slice.{ buf; off; len } =
+    Out_channel.output_bigarray oc buf off len
+  in
+
+  decompress_bigstring_stream ~pull ~push decompressor

@@ -41,7 +41,6 @@
 
 enum
 {
-  OCAML_ZSTD_NO_ERROR = 0,
   OCAML_ZSTD_GENERIC = 1,
   OCAML_ZSTD_PREFIX_UNKNOWN = 2,
   OCAML_ZSTD_VERSION_UNSUPPORTED = 3,
@@ -76,7 +75,8 @@ enum
   OCAML_ZSTD_SRC_BUFFER_WRONG = 32,
   OCAML_ZSTD_SEQUENCE_PRODUCER_FAILED = 33,
   OCAML_ZSTD_EXTERNAL_SEQUENCES_INVALID = 34,
-  OCAML_ZSTD_MAX_CODE = 35
+  OCAML_ZSTD_MAX_CODE = 35,
+  OCAML_ZSTD_CORRUPT_FRAME = 36,
 };
 
 static value
@@ -86,7 +86,7 @@ zstd_error_code_to_ocaml(int code)
 
   switch (code) {
     case ZSTD_error_no_error:
-      tag = OCAML_ZSTD_NO_ERROR;
+      caml_failwith("impossible state");
       break;
     case ZSTD_error_GENERIC:
       tag = OCAML_ZSTD_GENERIC;
@@ -208,6 +208,9 @@ zstd_error_code_to_ocaml(int code)
 #endif
     case ZSTD_error_maxCode:
       tag = OCAML_ZSTD_MAX_CODE;
+      break;
+    case OCAML_ZSTD_CORRUPT_FRAME:
+      tag = code;
       break;
     default:
       /* Unknown error code – map to Generic as a safe fallback. */
@@ -430,11 +433,14 @@ caml_get_frame_content_size(value compressed)
   const size_t result = ZSTD_getFrameContentSize(data, data_size);
 
   if (result == ZSTD_CONTENTSIZE_ERROR)
-    raise_zstd_error(-1, "ZSTD_getFrameContentSize", "corrupt frame");
+    raise_zstd_error(
+      OCAML_ZSTD_CORRUPT_FRAME, "ZSTD_getFrameContentSize", "corrupt frame");
 
   if (result == ZSTD_CONTENTSIZE_UNKNOWN)
-    raise_zstd_error(
-      -1, "ZSTD_getFrameContentSize", "frame does not carry its content size");
+    // raise_zstd_error(
+    //   -1, "ZSTD_getFrameContentSize", "frame does not carry its content
+    //   size");
+    caml_raise_not_found();
 
   if (result > Max_long)
     caml_failwith("frame content size is more then Max_long");
@@ -617,7 +623,7 @@ caml_zstd_decompress_bigstring(value context, value in_slice, value out_slice)
 
   caml_leave_blocking_section();
 
-  CAMLreturn(Val_unit);
+  CAMLreturn(Val_int(decompressed_bytes));
 }
 
 CAMLprim value
@@ -634,7 +640,7 @@ caml_zstd_decompress_string(value context, value in_slice, value out_slice)
 
   check_on_zstd_error(decompressed_bytes, "ZSTD_decompressDCtx", NULL);
 
-  CAMLreturn(Val_unit);
+  CAMLreturn(Val_int(decompressed_bytes));
 }
 
 /*
