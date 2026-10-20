@@ -75,10 +75,7 @@ When working with network streams or large datasets, streaming support becomes e
 
 To support these use cases, Zstandard and the `ozstd` bindings provide both manual buffering and an automated slice-based API.
 
-**HANDWRITTeN**
-
-
-Most easy to use is toplevel `compress_bigstring_stream` and `decompress_bigstring_stream` functions driven via pull and push mechanism.
+Automated slice-based API provides `compress_bigstring_stream` and `decompress_bigstring_stream` functions, driven by a pull and push mechanism, and `State` modules.
 
 ```ocaml
 let pull () = read_slice source 
@@ -87,7 +84,7 @@ and push slice = write_slice destination in
 Ozstd.Compressor.compress_bigstring_stream ~pull ~push compressor
 ```
 
-But for manual and automated streaming compression and decompression you may use `Stream` and `State` modules.
+However, for manual and automated streaming compression and decompression, you can use the `Stream` and `State` modules.
 
 For more details, see the [API reference](https://ocaml.org/p/ozstd/latest/doc/index.html) and the [`examples/`](./examples/) directory.
 
